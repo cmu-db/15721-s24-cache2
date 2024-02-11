@@ -1,52 +1,29 @@
 // In src/main.rs
+#[macro_use] extern crate rocket;
 
-use std::sync::Arc;
-use tokio::{io, net::TcpListener};
-use log::{error, info, LevelFilter};
-use env_logger::Builder;
-use clap::{App, Arg};
-
-mod client_connection;
+mod cache;
 mod db;
 
-use client_connection::ClientConnection;
-use db::Database;
+use std::path::PathBuf;
+use rocket::fs::NamedFile;
+use crate::cache::*;
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
-    let matches = App::new("KVStore Server")
-        .arg(Arg::new("port")
-            .long("port")
-            .takes_value(true)
-            .default_value("7878")
-            .help("Sets the server port"))
-        .arg(Arg::new("address")
-            .long("address")
-            .takes_value(true)
-            .default_value("127.0.0.1")
-            .help("Sets the IP address"))
-        .get_matches();
-
-    let port = matches.value_of("port").unwrap().parse::<u16>().expect("Invalid port number");
-    let address = matches.value_of("address").unwrap();
-
-    Builder::new().filter_level(LevelFilter::Info).init();
-
-    let db = Arc::new(Database::new());
-    let listener = TcpListener::bind(format!("{}:{}", address, port)).await?;
-
-    info!("Server running on {}:{}", address, port);
-
-    loop {
-        let (socket, _) = listener.accept().await?;
-        let db_clone: Arc<Database> = db.clone();
-        tokio::spawn(async move {
-            let mut client = ClientConnection::new(socket, db_clone);
-            if let Err(e) = client.handle_client().await {
-                error!("Failed to handle client: {}", e);
-            }
-        });
-    }
+#[get("/")]
+fn health_check() -> &'static str {
+    "Healthy\n"
 }
 
+#[get("/s3/<path..>")]
+async fn get_file(path: PathBuf) -> Option<NamedFile> {
+    let uid = FileUid::from_path(path);
+    request_file(uid).await
+}
 
+#[rocket::main]
+async fn main() -> Result<(), rocket::Error> {
+    let _rocket = rocket::build()
+        .mount("/", routes![health_check, get_file])
+        .launch()
+        .await?;
+    Ok(())
+}
