@@ -89,4 +89,20 @@ impl DiskCache {
         self.access_order.retain(|x| x != file_name);
         self.access_order.push_back(file_name.clone());
     }
+
+    pub async fn get_stats(cache: Arc<Mutex<Self>>) -> HashMap<String, u64> {
+        let cache = cache.lock().await;
+        let mut stats = HashMap::new();
+        stats.insert("current_size".to_string(), cache.current_size);
+        stats.insert("max_size".to_string(), cache.max_size);
+        stats.insert("cache_entries".to_string(), cache.cache_contents.len() as u64);
+        stats
+    }
+
+    pub async fn set_max_size(cache: Arc<Mutex<Self>>, new_size: u64) {
+        let mut cache = cache.lock().await;
+        cache.max_size = new_size;
+        // Optionally trigger capacity enforcement immediately
+        Self::ensure_capacity(&mut *cache).await;
+    }
 }
