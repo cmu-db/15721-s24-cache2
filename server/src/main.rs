@@ -1,12 +1,17 @@
-// In src/main.rs
-#[macro_use] extern crate rocket;
+#[macro_use]
+extern crate rocket;
+
+use rocket::fs::NamedFile;
+use rocket::State;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 mod cache;
-mod db;
+use cache::DiskCache;
+mod s3_fifo; // Update to use s3_fifo
+use s3_fifo::S3FIFOCache; // Use S3FIFOCache instead of DiskCache
 
-use std::path::PathBuf;
-use rocket::fs::NamedFile;
-use crate::cache::*;
 
 #[get("/")]
 fn health_check() -> &'static str {
@@ -14,16 +19,18 @@ fn health_check() -> &'static str {
 }
 
 #[get("/s3/<path..>")]
-async fn get_file(path: PathBuf) -> Option<NamedFile> {
-    let uid = FileUid::from_path(path);
-    request_file(uid).await
+async fn get_file(
+    path: PathBuf,
+    cache: &State<Arc<Mutex<DiskCache>>>,
+) -> Option<NamedFile> {
+    DiskCache::get_file(cache.inner().clone(), &path).await
 }
 
-#[rocket::main]
-async fn main() -> Result<(), rocket::Error> {
-    let _rocket = rocket::build()
+#[launch]
+fn rocket() -> _ {
+    let cache_manager = DiskCache::new(PathBuf::from("cache/"), 3); // 10 MB Max Size
+    rocket::build()
+        .manage(cache_manager)
         .mount("/", routes![health_check, get_file])
-        .launch()
-        .await?;
-    Ok(())
 }
+
