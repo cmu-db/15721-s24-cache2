@@ -1,38 +1,19 @@
 use anyhow::Result;
 use arrow::array::RecordBatch;
 
+use client::client_api::{StorageClient, StorageRequest};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::fs::File;
-use std::{
-    collections::HashMap,
-    sync::mpsc::{channel, Receiver, Sender},
-};
-use thiserror::Error;
+use std::{collections::HashMap};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::task;
 
-/// Error type for storage client
-#[derive(Error, Debug)]
-pub enum SCError {
-    #[error("Error happens on connection with I/O server")]
-    ServerConnectionError,
-    #[error("Error happens on connection with catalog service")]
-    CatalogConnectionError,
-    #[error("Table does not exist(after consulting catalog service)")]
-    TableNotExistError,
-    #[error(transparent)]
-    IOError(#[from] std::io::Error),
-    #[error(transparent)]
-    ArrowError(#[from] arrow::error::ArrowError),
-    #[error(transparent)]
-    ParquetError(#[from] parquet::errors::ParquetError),
-}
-
 /// Clien for fetching data from I/O service
-pub struct StorageClient {
+pub struct StorageClientImpl {
     id: usize,
     table_file_map: HashMap<String, String>,
 }
-impl StorageClient {
+impl StorageClientImpl {
     /// Create a StorageClient instance
     pub fn new(id: usize) -> Self {
         Self {
@@ -51,7 +32,7 @@ impl StorageClient {
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
     pub async fn entire_table(&self, table: &str) -> Result<Receiver<RecordBatch>> {
         let file_path = self.get_path(table)?;
-        let (sender, receiver) = channel::<RecordBatch>();
+        let (sender, receiver) = channel::<RecordBatch>(1000);
 
         // Spawn a new async task to read the parquet file and send the data
         task::spawn(async move {
@@ -60,18 +41,6 @@ impl StorageClient {
             }
         });
         Ok(receiver)
-    }
-
-    /// Fetch all data of a specific column of a table, call get_path() to get the file name that stores the table
-    pub async fn one_col(&self, table: &str, col: &str) -> Receiver<RecordBatch> {
-        // Whether to support this granularity is TBD!!
-        todo!()
-    }
-
-    /// Fetch all data of some specific columns of a table, call get_path() to get the file name that stores the table
-    pub async fn mut_cols(&self, table: &str, cols: Vec<&str>) -> Receiver<RecordBatch> {
-        // Whether to support this granularity is TBD!!
-        todo!()
     }
 
     /// Consult locally stored table_file_map to get the url
@@ -98,9 +67,20 @@ impl StorageClient {
         let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
         let mut reader = builder.build().unwrap();
         while let Some(Ok(rb)) = reader.next() {
-            sender.send(rb)?;
+            sender.send(rb).await?;
         }
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl StorageClient for StorageClientImpl {
+    async fn request_data(&self, _request: StorageRequest) -> Result<Receiver<RecordBatch>> {
+        todo!()
+    }
+
+    async fn request_data_sync(&self, _request: StorageRequest) -> Result<Vec<RecordBatch>> {
+        todo!()
     }
 }
 
@@ -155,7 +135,7 @@ mod tests {
         Ok(())
     }
 
-    fn setup() -> (StorageClient, String) {
+    fn setup() -> (StorageClientImpl, String) {
         let mut table_file_map = HashMap::new();
         // Suppose "sample_table" is mapped to a "sample.parquet" file
         table_file_map.insert("sample_table".to_string(), "sample.parquet".to_string());
@@ -165,7 +145,7 @@ mod tests {
         create_sample_parquet_file(file_name).unwrap();
 
         (
-            StorageClient::new_for_test(1, table_file_map),
+            StorageClientImpl::new_for_test(1, table_file_map),
             file_name.to_string(),
         )
     }
@@ -175,7 +155,7 @@ mod tests {
         let (client, _file_name) = setup();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            let receiver = client.entire_table("sample_table").await.unwrap();
+            let mut receiver = client.entire_table("sample_table").await.unwrap();
             assert!(receiver.try_recv().is_ok());
             // TODO: add more detailed assertions here, like checking the content of the RecordBatch
         });
