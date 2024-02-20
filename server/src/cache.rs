@@ -5,6 +5,9 @@ use std::io::Result as IoResult;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use log::{info};
+
+pub type FileUid = String;
 
 pub struct DiskCache {
     cache_dir: PathBuf,
@@ -32,6 +35,7 @@ impl DiskCache {
 
         // If file is in cache, update its access position
         if cache.cache_contents.contains_key(&file_name_str) {
+            info!("cache hit! ({})", &file_name_str);
             cache.update_access(&file_name_str);
             let cache_file_path = cache.cache_dir.join(file_name);
             return NamedFile::open(cache_file_path).await.ok();
@@ -40,6 +44,7 @@ impl DiskCache {
         // Load from "S3", simulate adding to cache
         let s3_file_path = Path::new("S3/").join(file_name);
         if s3_file_path.exists() {
+            info!("fetch from S3 ({})", &file_name_str);
             // Before adding the new file, ensure there's enough space
             cache.ensure_capacity().await;
             if let Ok(_) = cache.add_file_to_cache(&s3_file_path).await {
@@ -83,7 +88,6 @@ impl DiskCache {
             }
         }
     }
-
     // Update a file's position in the access order
     fn update_access(&mut self, file_name: &String) {
         self.access_order.retain(|x| x != file_name);
@@ -104,5 +108,26 @@ impl DiskCache {
         cache.max_size = new_size;
         // Optionally trigger capacity enforcement immediately
         Self::ensure_capacity(&mut *cache).await;
+    }
+}
+pub struct RedisServer{
+    conn: redis::Connection
+}
+
+
+impl RedisServer{
+    pub fn new(addr: &str) -> Result<Self, redis::RedisError> {
+        let client = redis::Client::open(addr)?;
+        let conn = client.get_connection()?;
+        info!("Connected with server {}", addr);
+        Ok(RedisServer {
+            conn
+        })
+    }
+    pub async fn get_file(&self, uid: FileUid) -> Option<PathBuf> {
+        Some(PathBuf::from("/data/foo.txt"))        
+    } 
+    pub async fn set_file(&self, uid: FileUid, loc: PathBuf) -> Result<(), ()> {
+        Ok(())
     }
 }

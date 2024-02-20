@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 mod cache;
-use cache::DiskCache;
+use cache::{DiskCache, FileUid, RedisServer};
 
 #[get("/")]
 fn health_check() -> &'static str {
@@ -20,10 +20,11 @@ fn health_check() -> &'static str {
 async fn get_file(
     path: PathBuf,
     cache: &State<Arc<Mutex<DiskCache>>>,
+    redis: &State<RedisServer>
 ) -> Result<NamedFile, status::Custom<&'static str>> {
-    match DiskCache::get_file(cache.inner().clone(), &path).await {
-        Some(file) => Ok(file),
-        None => Err(status::Custom(Status::NotFound, "File not found")),
+    match redis.get_file(path.into_os_string().into_string().unwrap()).await {
+        Some(path) => DiskCache::get_file(cache.inner().clone(), &path).await.ok_or(status::Custom(Status::NotFound, "File not found")),
+        None => Err(status::Custom(Status::NotFound, "File not found"))
     }
 }
 
@@ -44,9 +45,11 @@ async fn set_cache_size(
 
 #[launch]
 fn rocket() -> _ {
+    let redis_server = cache::RedisServer::new("redis://127.0.0.1:6739").unwrap();
     let cache_manager = DiskCache::new(PathBuf::from("cache/"), 3); // use 3 for testing
     rocket::build()
         .manage(cache_manager)
+        .manage(redis_server)
         .mount("/", routes![health_check, get_file, cache_stats, set_cache_size])
 }
 
