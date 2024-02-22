@@ -41,23 +41,8 @@ fn health_check() -> &'static str {
 async fn get_file(
     uid: PathBuf,
     cache: &State<Arc<Mutex<DiskCache>>>,
-    redis: &State<RedisServer>
 ) -> Result<NamedFile, status::Custom<&'static str>> {
-    let uid_str = uid.into_os_string().into_string().unwrap();
-    let path: PathBuf;
-    if let Some(redis_res) = redis.get_file(uid_str.clone()).await {
-        debug!("{} found in cache", &uid_str);
-        path = redis_res;
-    } else {
-        if let Ok(cache_path) = DiskCache::get_s3_file_to_local(cache.inner().clone(), &uid_str).await {
-            debug!("{} fetched from S3", &uid_str);
-            path = cache_path;
-            redis.set_file_cache_loc(uid_str.clone(), path.clone()).await;
-        } else {
-            return Err(status::Custom(Status::NotFound, "File not found on S3!"))
-        }
-    }
-    DiskCache::get_file(cache.inner().clone(), &path).await.ok_or(status::Custom(Status::NotFound, "File not found"))
+    DiskCache::get_file(cache.inner().clone(), uid).await
 }
 
 #[get("/stats")]
@@ -78,11 +63,9 @@ async fn set_cache_size(
 #[launch]
 fn rocket() -> _ {
     setup_logger();
-    let redis_server = cache::RedisServer::new("redis://127.0.0.1:6379").unwrap();
-    let cache_manager = DiskCache::new(PathBuf::from("cache/"), 3); // use 3 for testing
+    let cache_manager = DiskCache::new(PathBuf::from("cache/"), 3, "redis://127.0.0.1:6379"); // use 3 for testing
     rocket::build()
         .manage(cache_manager)
-        .manage(redis_server)
         .mount("/", routes![health_check, get_file, cache_stats, set_cache_size])
 }
 
