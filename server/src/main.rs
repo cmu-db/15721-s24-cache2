@@ -1,8 +1,18 @@
-#[macro_use] extern crate rocket;
+#[macro_use]
+extern crate rocket;
 extern crate fern;
 #[macro_use]
 extern crate log;
-use redis::Commands;
+
+use rocket::fs::NamedFile;
+use rocket::response::status;
+use rocket::State;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+mod cache;
+use cache::DiskCache;
 
 fn setup_logger() -> Result<(), fern::InitError> {
     fern::Dispatch::new()
@@ -20,17 +30,6 @@ fn setup_logger() -> Result<(), fern::InitError> {
         .apply()?;
     Ok(())
 }
-
-use rocket::fs::NamedFile;
-use rocket::http::Status;
-use rocket::response::status;
-use rocket::State;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
-mod cache;
-use cache::{DiskCache, FileUid, RedisServer};
 
 #[get("/")]
 fn health_check() -> &'static str {
@@ -52,20 +51,17 @@ async fn cache_stats(cache: &State<Arc<Mutex<DiskCache>>>) -> String {
 }
 
 #[post("/size/<new_size>")]
-async fn set_cache_size(
-    new_size: u64,
-    cache: &State<Arc<Mutex<DiskCache>>>,
-) -> &'static str {
+async fn set_cache_size(new_size: u64, cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
     DiskCache::set_max_size(cache.inner().clone(), new_size).await;
     "Cache size updated"
 }
 
 #[launch]
 fn rocket() -> _ {
-    setup_logger();
-    let cache_manager = DiskCache::new(PathBuf::from("cache/"), 3, "redis://127.0.0.1:6379"); // use 3 for testing
-    rocket::build()
-        .manage(cache_manager)
-        .mount("/", routes![health_check, get_file, cache_stats, set_cache_size])
+    let _ = setup_logger();
+    let cache_manager = DiskCache::new(PathBuf::from("cache/"), 3, "redis://127.0.0.1:6379"); // [TODO] make the args configurable from env
+    rocket::build().manage(cache_manager).mount(
+        "/",
+        routes![health_check, get_file, cache_stats, set_cache_size],
+    )
 }
-
