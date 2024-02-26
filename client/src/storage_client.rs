@@ -4,15 +4,19 @@ use arrow::array::RecordBatch;
 use client::client_api::{ColumnId, StorageClient, StorageRequest, TableId};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::fs::File;
+use std::io::Write;
 use std::{collections::HashMap};
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::task;
+use reqwest::Error;
+use std::path::Path;
 
 
 /// Clien for fetching data from I/O service
 pub struct StorageClientImpl {
     id: usize,
     table_file_map: HashMap<TableId, String>,
+    cache_url: String,
 }
 impl StorageClientImpl {
     /// Create a StorageClient instance
@@ -20,6 +24,7 @@ impl StorageClientImpl {
         Self {
             id,
             table_file_map: HashMap::new(),
+            cache_url: "http://localhost:8000".to_string(),
         }
     }
 
@@ -27,12 +32,16 @@ impl StorageClientImpl {
         Self {
             id,
             table_file_map: map,
+            cache_url: "http://localhost:8000".to_string(),
         }
     }
 
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
     pub async fn read_entire_table(&self, table: TableId) -> Result<Receiver<RecordBatch>> {
         let file_path = self.get_path(table)?;
+        if !Path::new(&file_path).exists() {
+            self.fetch_file(&file_path).await?;
+        }
         let (sender, receiver) = channel::<RecordBatch>(1000);
 
         // Spawn a new async task to read the parquet file and send the data
@@ -64,7 +73,7 @@ impl StorageClientImpl {
         if let Some(file_path) = self.table_file_map.get(&table) {
             Ok(file_path.clone())
         } else {
-            panic!("Table not found, catalog service is assume not available yet");
+            panic!("Path not found in local table, catalog service is assume not available yet");
         }
     }
 
@@ -75,12 +84,27 @@ impl StorageClientImpl {
     }
 
     /// Fetch file from I/O server
-    fn fetch_file(&self, file_path: &str) -> Result<()> {
-        // copy code from main.rs?
-        todo!()
+    async fn fetch_file(&self, file_path: &str) -> Result<()> {
+        // First, trim the path to leave only the file name after the last '/'
+        let trimmed_path: Vec<&str> = file_path.split('/').collect();
+        let file_name = trimmed_path.last().unwrap();
+        let url = format!("{}/s3/{}", self.cache_url,file_name);
+    
+        // Send a GET request and await the response
+        let response = reqwest::get(url).await?;
+
+        // Ensure the request was successful and extract the response body as a String
+        let file_contents = response.bytes().await?;
+        // println!("File contents: {}", file_contents);
+        // Write the file to the local file_path
+        let mut file = File::create(file_path)?;
+        file.write_all(&file_contents)?;
+        
+        Ok(())
     }
 
     async fn read_parquet_file(file_path: &String, sender: Sender<RecordBatch>) -> Result<()> {
+        // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
         let file = File::open(file_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
         let mut reader = builder.build().unwrap();
@@ -145,8 +169,10 @@ mod tests {
     }
 
     fn create_sample_parquet_file(file_name: &str) -> anyhow::Result<()> {
+    
 
-        let mut file_path = "/home/scott/15721-s24-cache2/client/parquet_files/".to_owned();
+        let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+
         file_path.push_str(file_name);
         let path = Path::new(&file_path);   
 
@@ -186,10 +212,10 @@ mod tests {
         Ok(())
     }
 
-    fn setup() -> (StorageClientImpl, String) {
+    fn setup_local() -> (StorageClientImpl, String) {
         let mut table_file_map: HashMap<TableId, String> = HashMap::new();
         let file_name: &str = "sample.parquet";
-        let mut file_path = "/home/scott/15721-s24-cache2/client/parquet_files/".to_owned();
+        let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
         file_path.push_str(file_name);
         table_file_map.insert(0, file_path);
 
@@ -203,9 +229,40 @@ mod tests {
         )
     }
 
+    fn setup_remote() -> StorageClientImpl {
+        let mut table_file_map: HashMap<TableId, String> = HashMap::new();
+        let file_name: &str = "sample.parquet";
+        let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+        file_path.push_str(file_name);
+        table_file_map.insert(0, file_path);
+
+        
+        StorageClientImpl::new_for_test(1, table_file_map)
+        
+    }
+
     #[test]
-    fn test_entire_table() {
-        let (client, _file_name) = setup();
+    fn test_entire_table_local() {
+        let (client, _file_name) = setup_local();
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut receiver = client.read_entire_table(0).await.unwrap();
+            // Wait for the channel to be ready
+            sleep(Duration::from_secs(1)).await;
+            // Assert that the channel is ready
+            let res = receiver.try_recv();
+            assert!(res.is_ok());
+            let record_batch = res.unwrap();
+            let sample_rb = create_sample_rb();
+            assert_eq!(record_batch, sample_rb);
+            println!("RecordBatch: {:?}", record_batch);
+            println!("SampleRecordBatch: {:?}", sample_rb);
+        });
+    }
+
+    #[test]
+    fn test_entire_table_remote() {
+        let client = setup_remote();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let mut receiver = client.read_entire_table(0).await.unwrap();
@@ -224,8 +281,8 @@ mod tests {
 
     
     #[test]
-    fn test_request_data_table() {
-        let (client, _file_name) = setup();
+    fn test_request_data_table_local() {
+        let (client, _file_name) = setup_local();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let mut receiver = client.request_data(StorageRequest::Table(0)).await.unwrap();
@@ -236,6 +293,26 @@ mod tests {
             assert!(res.is_ok());
             let record_batch = res.unwrap();
             let sample_rb = create_sample_rb();
+            assert_eq!(record_batch, sample_rb);
+            println!("RecordBatch: {:?}", record_batch);
+            println!("SampleRecordBatch: {:?}", sample_rb);
+        });
+    }
+
+
+    #[test]
+    fn test_request_data_table_remote() {
+        let client = setup_remote();
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut receiver = client.request_data(StorageRequest::Table(0)).await.unwrap();
+            // Wait for the channel to be ready
+            sleep(Duration::from_secs(1)).await;
+            // Assert that the channel is ready
+            let res = receiver.try_recv();
+            assert!(res.is_ok());
+            let record_batch = res.unwrap();
+            let sample_rb: RecordBatch = create_sample_rb();
             assert_eq!(record_batch, sample_rb);
             println!("RecordBatch: {:?}", record_batch);
             println!("SampleRecordBatch: {:?}", sample_rb);
