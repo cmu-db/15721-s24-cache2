@@ -5,7 +5,7 @@ extern crate fern;
 extern crate log;
 
 use rocket::fs::NamedFile;
-use rocket::response::status;
+use rocket::response::{status, Redirect};
 use rocket::State;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,7 +40,7 @@ fn health_check() -> &'static str {
 async fn get_file(
     uid: PathBuf,
     cache: &State<Arc<Mutex<DiskCache>>>,
-) -> Result<NamedFile, status::Custom<&'static str>> {
+) -> Result<NamedFile, Redirect> {
     DiskCache::get_file(cache.inner().clone(), uid).await
 }
 
@@ -59,7 +59,8 @@ async fn set_cache_size(new_size: u64, cache: &State<Arc<Mutex<DiskCache>>>) -> 
 #[launch]
 fn rocket() -> _ {
     let _ = setup_logger();
-    let cache_manager = DiskCache::new(PathBuf::from("cache/"), 3, "redis://127.0.0.1:6379"); // [TODO] make the args configurable from env
+    let _ = std::fs::create_dir_all("/data/cache");
+    let cache_manager = DiskCache::new(PathBuf::from("/data/cache/"), 3, vec!["redis://node1:6379", "redis://node2:6379", "redis://node3:6379"]); // [TODO] make the args configurable from env
     rocket::build().manage(cache_manager).mount(
         "/",
         routes![health_check, get_file, cache_stats, set_cache_size],

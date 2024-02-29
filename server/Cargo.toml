@@ -1,5 +1,5 @@
 [package]
-name = "echo_server"
+name = "istziio_server_node"
 version = "0.1.0"
 edition = "2018"
 
@@ -12,4 +12,5 @@ env_logger = "0.11.1"
 fern = "0.5"
 clap = "3"
 rocket = "0.5.0"
-redis = "0.24.0"
+redis = { version = "0.24.0", features = ["cluster"] }
+reqwest = "0.11"
