@@ -17,26 +17,37 @@ This server implements a Least Recently Used (LRU) caching mechanism, providing 
 
 - Rust and Cargo (latest stable version recommended)
 - Rocket Framework
+- Docker
 
 ### Installation
 
 1. Clone the repository:
     ```sh
-    git clone <repository-url>
-    cd <repository-name>/<server>
+    git clone git@github.com:cmu-db15721-s24-cache2.git
+    cd 15721-s24-cache2/server
     ```
 
 2. Build the project:
     ```sh
-    cargo build --release
+    docker build -t istziio .
     ```
 
 3. Run the server:
     ```sh
-    cargo run --release
+    docker compose up -d
     ```
 
-The server will start, and by default, it listens on `http://localhost:8000`.
+> [!IMPORTANT]
+> Under development stage, the server cluster can be access ONLY within the specific Docker network. Client side needs to be in the same Docker bridge network for the correct redirection.
+
+### Example
+
+```sh
+$ docker exec -it server-servernode_1-1 /bin/bash
+root@node1:/data> apt-get update && apt-get install curl -y
+root@node1:/data> curl -L http://node2:8000/s3/test1.txt # make sure -L flag is set for auto redirect to the correct node
+```
+
 
 ## Usage
 
