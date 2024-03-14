@@ -2,3 +2,4 @@
 Cargo.lock
 cache
 output.log
+*.swp
