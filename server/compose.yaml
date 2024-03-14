@@ -1,0 +1,71 @@
+services:
+  servernode_1:
+    hostname: node1
+    image: istziio
+    build: .
+    ports:
+      - "8000:8000"
+      - "6379:6379"
+      - "16379:16379"
+    networks:
+      - cluster-network
+    environment:
+      - REDIS_PORT=6379
+      - ROCKET_CONFIG=/usr/local/bin/Rocket.toml
+      - ROCKET_ENV=development
+
+  servernode_2:
+    hostname: node2
+    image: istziio
+    build: .
+    ports:
+      - "8001:8000"
+      - "6380:6379"
+      - "16380:16379"
+    networks:
+      - cluster-network
+    environment:
+      - REDIS_PORT=6379
+      - ROCKET_CONFIG=/usr/local/bin/Rocket.toml
+      - ROCKET_ENV=development
+
+  servernode_3:
+    hostname: node3
+    image: istziio
+    build: .
+    ports:
+      - "8002:8000"
+      - "6381:6379"
+      - "16381:16379"
+    networks:
+      - cluster-network
+    environment:
+      - REDIS_PORT=6379
+      - ROCKET_CONFIG=/usr/local/bin/Rocket.toml
+      - ROCKET_ENV=development
+
+  clustersetup:
+    image: redis
+    depends_on:
+      - servernode_1
+      - servernode_2
+      - servernode_3
+    restart: "no"
+    entrypoint: [ "bash", "-c", "yes \"yes\" | redis-cli --cluster create node1:6379 node2:6379 node3:6379 --cluster-replicas 0" ]
+    networks:
+      - cluster-network
+
+  mocks3:
+    image: nginx
+    ports:
+      - 8080:80
+    networks:
+      - cluster-network
+    volumes:
+      - type: bind
+        source: ./S3
+        target: /usr/share/nginx/html
+networks:
+  # The presence of these objects is sufficient to define them
+  cluster-network:
+    driver: bridge
