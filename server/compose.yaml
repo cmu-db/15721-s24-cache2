@@ -2,6 +2,7 @@ services:
   servernode_1:
     hostname: node1
     image: istziio
+    build: .
     ports:
       - "8000:8000"
       - "6379:6379"
@@ -16,6 +17,7 @@ services:
   servernode_2:
     hostname: node2
     image: istziio
+    build: .
     ports:
       - "8001:8000"
       - "6380:6379"
@@ -30,6 +32,7 @@ services:
   servernode_3:
     hostname: node3
     image: istziio
+    build: .
     ports:
       - "8002:8000"
       - "6381:6379"
