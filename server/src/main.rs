@@ -53,25 +53,46 @@ async fn scale_out(cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
 }
 
 #[get("/keyslots/yield/<p>")]
-async fn yield_keyslots(p: f64, cache_guard: &State<Arc<Mutex<DiskCache>>>) -> Json<Vec<KeyslotId>> {
+async fn yield_keyslots(
+    p: f64,
+    cache_guard: &State<Arc<Mutex<DiskCache>>>,
+) -> Json<Vec<KeyslotId>> {
     let cache_mutex = cache_guard.inner().clone();
     let mut cache = cache_mutex.lock().await;
     let keyslots = cache.redis.yield_keyslots(p).await;
     Json(keyslots)
 }
 
-#[post("/keyslots/import", format="application/json", data="<keyslots_json>")]
-async fn import_keyslots(keyslots_json: Json<Vec<KeyslotId>>, cache_guard: &State<Arc<Mutex<DiskCache>>>) {
+#[post(
+    "/keyslots/import",
+    format = "application/json",
+    data = "<keyslots_json>"
+)]
+async fn import_keyslots(
+    keyslots_json: Json<Vec<KeyslotId>>,
+    cache_guard: &State<Arc<Mutex<DiskCache>>>,
+) {
     let cache_mutex = cache_guard.inner().clone();
     let mut cache = cache_mutex.lock().await;
     cache.redis.import_keyslot(keyslots_json.into_inner()).await;
 }
 
-#[post("/keyslots/migrate_to/<node_id>", format="application/json", data="<keyslots_json>")]
-async fn migrate_keyslots_to(keyslots_json: Json<Vec<KeyslotId>>, node_id: String, cache_guard: &State<Arc<Mutex<DiskCache>>>) {
+#[post(
+    "/keyslots/migrate_to/<node_id>",
+    format = "application/json",
+    data = "<keyslots_json>"
+)]
+async fn migrate_keyslots_to(
+    keyslots_json: Json<Vec<KeyslotId>>,
+    node_id: String,
+    cache_guard: &State<Arc<Mutex<DiskCache>>>,
+) {
     let cache_mutex = cache_guard.inner().clone();
     let cache = cache_mutex.lock().await;
-    cache.redis.migrate_keyslot_to(keyslots_json.into_inner(), node_id).await;
+    cache
+        .redis
+        .migrate_keyslot_to(keyslots_json.into_inner(), node_id)
+        .await;
 }
 
 #[get("/stats")]
@@ -93,12 +114,19 @@ fn rocket() -> _ {
     let cache_manager = DiskCache::new(
         PathBuf::from("/data/cache/"),
         3,
-        vec![
-            "redis://0.0.0.0:6379",
-        ],
+        vec!["redis://0.0.0.0:6379"],
     ); // [TODO] make the args configurable from env
     rocket::build().manage(cache_manager).mount(
         "/",
-        routes![health_check, get_file, cache_stats, set_cache_size, scale_out, yield_keyslots, migrate_keyslots_to, import_keyslots],
+        routes![
+            health_check,
+            get_file,
+            cache_stats,
+            set_cache_size,
+            scale_out,
+            yield_keyslots,
+            migrate_keyslots_to,
+            import_keyslots
+        ],
     )
 }

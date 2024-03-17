@@ -2,6 +2,8 @@ use log::info;
 use redis::Commands;
 use rocket::fs::NamedFile;
 use rocket::response::Redirect;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::prelude::*;
@@ -9,8 +11,6 @@ use std::io::Result as IoResult;
 use std::path::{Path, PathBuf};
 use std::str::from_utf8;
 use std::sync::Arc;
-use std::collections::BinaryHeap;
-use std::cmp::Reverse;
 use tokio::sync::Mutex;
 
 pub type FileUid = String;
@@ -149,8 +149,14 @@ impl DiskCache {
 
 #[derive(Eq)]
 struct RedisKeyslot {
+    /* This struct is used when the cluster tries to scale out.
+     * During scaling out, keyslots are decided to be migrated to some other nodes, and
+     * the number of key stored in one key slot implies the number of cached files to
+     * be deleted and handover to other nodes. To reduce the lost of cached file due to data
+     * migration in this scenario, we want to find key slots that contains the least key to
+     * handover. */
     pub id: KeyslotId,
-    pub key_cnt: i64
+    pub key_cnt: i64,
 }
 
 impl Ord for RedisKeyslot {
@@ -184,39 +190,43 @@ impl RedisServer {
             myid: String::from(""),
         })
     }
-    async fn own_slots_from_shards_info(&mut self, shards_info: Vec<Vec<redis::Value>>) -> Result<Vec<[KeyslotId; 2]>, String> {
+    async fn own_slots_from_shards_info(
+        &mut self,
+        shards_info: Vec<Vec<redis::Value>>,
+    ) -> Result<Vec<[KeyslotId; 2]>, String> {
         let mut shard_iter = shards_info.iter();
         let myid = self.get_myid();
         loop {
             if let Some(shard_info) = shard_iter.next() {
                 if let redis::Value::Bulk(nodes_info) = &shard_info[3] {
-                   if let redis::Value::Bulk(fields) = &nodes_info[0] {
-                       let mut node_id = String::from(""); 
-                       if let redis::Value::Data(x) = &fields[1] {
+                    if let redis::Value::Bulk(fields) = &nodes_info[0] {
+                        let mut node_id = String::from("");
+                        if let redis::Value::Data(x) = &fields[1] {
                             node_id = String::from_utf8(x.to_vec()).unwrap();
                         }
-                       if node_id == *myid {
+                        if node_id == *myid {
                             if let redis::Value::Bulk(slot_range) = &shard_info[1] {
                                 let mut own_slot_ranges = Vec::new();
                                 for i in (0..slot_range.len()).step_by(2) {
-                                    if let (redis::Value::Int(low), redis::Value::Int(high)) = 
-                                        (&slot_range[i], &slot_range[i+1]){
-                                            let low_id = *low as KeyslotId;
-                                            let high_id = *high as KeyslotId;
-                                            own_slot_ranges.push([low_id, high_id]);
-                                            debug!("this node has slot {} to {}", low_id, high_id);
-                                        }
+                                    if let (redis::Value::Int(low), redis::Value::Int(high)) =
+                                        (&slot_range[i], &slot_range[i + 1])
+                                    {
+                                        let low_id = *low as KeyslotId;
+                                        let high_id = *high as KeyslotId;
+                                        own_slot_ranges.push([low_id, high_id]);
+                                        debug!("this node has slot {} to {}", low_id, high_id);
+                                    }
                                 }
                                 return Ok(own_slot_ranges);
                             }
-                       }
-                   }
+                        }
+                    }
                 }
             } else {
                 debug!("This id is not found in the cluster");
                 return Err(String::from("This id is not found in the cluster"));
             }
-        };
+        }
     }
     pub fn get_myid(&mut self) -> &String {
         // self.myid cannot be determined at the instantiation moment because the cluster is formed
@@ -252,7 +262,9 @@ impl RedisServer {
                         if let (redis::Value::Int(range_low), redis::Value::Int(range_high)) =
                             (&ranges[low_index], &ranges[high_index])
                         {
-                            if keyslot <= *range_high as KeyslotId && keyslot >= *range_low as KeyslotId {
+                            if keyslot <= *range_high as KeyslotId
+                                && keyslot >= *range_low as KeyslotId
+                            {
                                 if let redis::Value::Bulk(nodes_info) = &shard_info[3] {
                                     break Some(&nodes_info[0]);
                                 } else {
@@ -360,15 +372,19 @@ impl RedisServer {
                 .arg(keyslot)
                 .arg("NODE")
                 .arg(self.get_myid())
-                .query::<()>(&mut conn) {
-
-                }
+                .query::<()>(&mut conn)
+            {}
         }
     }
     pub async fn migrate_keyslot_to(&self, keyslots: Vec<KeyslotId>, destination_node_id: String) {
         let mut conn = self.client.get_connection().unwrap();
         for keyslot in keyslots.iter() {
-            while let Ok(keys_to_remove) = redis::cmd("CLUSTER").arg("GETKEYSINSLOT").arg(keyslot).arg(10000).query::<Vec<String>>(&mut conn) {
+            while let Ok(keys_to_remove) = redis::cmd("CLUSTER")
+                .arg("GETKEYSINSLOT")
+                .arg(keyslot)
+                .arg(10000)
+                .query::<Vec<String>>(&mut conn)
+            {
                 if keys_to_remove.len() == 0 {
                     break;
                 }
@@ -396,23 +412,29 @@ impl RedisServer {
         let mut heap = BinaryHeap::new();
         while let Some([low, high]) = slot_ranges.pop() {
             own_slot_cnt += (high - low) + 1;
-           for keyslot_id in low..(high+1) {
-               let key_cnt = redis::cmd("CLUSTER")
-                   .arg("COUNTKEYSINSLOT")
-                   .arg(keyslot_id)
-                   .query::<i64>(&mut conn)
-                   .unwrap();
-               heap.push(Reverse(RedisKeyslot{
+            for keyslot_id in low..(high + 1) {
+                let key_cnt = redis::cmd("CLUSTER")
+                    .arg("COUNTKEYSINSLOT")
+                    .arg(keyslot_id)
+                    .query::<i64>(&mut conn)
+                    .unwrap();
+                heap.push(Reverse(RedisKeyslot {
                     id: keyslot_id,
-                    key_cnt: key_cnt
-               }));
-           }
+                    key_cnt: key_cnt,
+                }));
+            }
         }
         let migrate_slot_cnt = (own_slot_cnt as f64 * p).floor() as i64;
         let mut result = Vec::new();
         let top_slot = &heap.peek().unwrap().0;
-        debug!("the least loaded key slot: {} ({} keys)", top_slot.id, top_slot.key_cnt);
-        debug!("{} of the total {} slot of this node is {}", p, own_slot_cnt, migrate_slot_cnt);
+        debug!(
+            "the least loaded key slot: {} ({} keys)",
+            top_slot.id, top_slot.key_cnt
+        );
+        debug!(
+            "{} of the total {} slot of this node is {}",
+            p, own_slot_cnt, migrate_slot_cnt
+        );
         for _ in 0..migrate_slot_cnt {
             if let Some(keyslot) = heap.pop() {
                 result.push(keyslot.0.id);
@@ -423,5 +445,4 @@ impl RedisServer {
         debug!("These are slots to be migrate: {:?}", result);
         result
     }
-
 }
