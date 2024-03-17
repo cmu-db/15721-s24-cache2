@@ -60,15 +60,15 @@ async fn yield_keyslots(portion: f64, cache: &State<Arc<Mutex<DiskCache>>>) -> J
 
 #[post("/keyslots/import", format="application/json", data="<keyslots_json>")]
 async fn import_keyslots(keyslots_json: Json<Vec<KeyslotId>>, cache_guard: &State<Arc<Mutex<DiskCache>>>) {
-    let mut cache_mutex = cache_guard.inner().clone();
+    let cache_mutex = cache_guard.inner().clone();
     let mut cache = cache_mutex.lock().await;
     cache.redis.import_keyslot(keyslots_json.into_inner()).await;
 }
 
 #[post("/keyslots/migrate_to/<node_id>", format="application/json", data="<keyslots_json>")]
 async fn migrate_keyslots_to(keyslots_json: Json<Vec<KeyslotId>>, node_id: String, cache_guard: &State<Arc<Mutex<DiskCache>>>) {
-    let mut cache_mutex = cache_guard.inner().clone();
-    let mut cache = cache_mutex.lock().await;
+    let cache_mutex = cache_guard.inner().clone();
+    let cache = cache_mutex.lock().await;
     cache.redis.migrate_keyslot_to(keyslots_json.into_inner(), node_id).await;
 }
 

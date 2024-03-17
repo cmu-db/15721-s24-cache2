@@ -336,7 +336,6 @@ impl RedisServer {
         let loc_str = loc.into_os_string().into_string().unwrap();
         debug!("try to set key [{}], value [{}] in redis", &uid, &loc_str);
         let _ = conn.set::<String, String, String>(uid.clone(), loc_str); // [TODO] Error handling
-        let keyslot = self.which_slot(uid).await;
         Ok(())
     }
     pub async fn remove_file(&self, uid: FileUid) -> Result<(), ()> {
@@ -357,7 +356,7 @@ impl RedisServer {
     pub async fn import_keyslot(&mut self, keyslots: Vec<KeyslotId>) {
         let mut conn = self.client.get_connection().unwrap();
         for keyslot in keyslots.iter() {
-            let result = std::process::Command::new("redis-cli")
+            let _ = std::process::Command::new("redis-cli") // TODO: error handling
                 .arg("-c")
                 .arg("cluster")
                 .arg("setslot")
@@ -366,7 +365,7 @@ impl RedisServer {
                 .arg(self.get_myid())
                 .output()
                 .expect("redis command setslot failed to start");
-            if let Ok(x) = redis::cmd("CLUSTER")
+            if let Ok(_) = redis::cmd("CLUSTER") // TODO: error handling
                 .arg("SETSLOT")
                 .arg(keyslot)
                 .arg("NODE")
@@ -385,7 +384,7 @@ impl RedisServer {
                 }
                 let _ = redis::cmd("DEL").arg(keys_to_remove).query::<()>(&mut conn);
             }
-            let result = std::process::Command::new("redis-cli")
+            let _ = std::process::Command::new("redis-cli") // TODO: error handling
                 .arg("-c")
                 .arg("cluster")
                 .arg("setslot")
