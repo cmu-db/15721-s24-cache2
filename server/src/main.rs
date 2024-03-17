@@ -52,9 +52,11 @@ async fn scale_out(cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
     "success"
 }
 
-#[get("/keyslots/yield/<portion>")]
-async fn yield_keyslots(portion: f64, cache: &State<Arc<Mutex<DiskCache>>>) -> Json<Vec<KeyslotId>> {
-    let keyslots = DiskCache::yield_keyslots(cache.inner().clone(), portion).await;
+#[get("/keyslots/yield/<p>")]
+async fn yield_keyslots(p: f64, cache_guard: &State<Arc<Mutex<DiskCache>>>) -> Json<Vec<KeyslotId>> {
+    let cache_mutex = cache_guard.inner().clone();
+    let mut cache = cache_mutex.lock().await;
+    let keyslots = cache.redis.yield_keyslots(p).await;
     Json(keyslots)
 }
 

@@ -145,16 +145,6 @@ impl DiskCache {
         let to_move = cache.redis.yield_keyslots(0.01).await;
         debug!("These slots are to move: {:?}", to_move);
     }
-    pub async fn yield_keyslots(cache: Arc<Mutex<Self>>, p: f64) -> Vec<KeyslotId>{
-        /* This is a workaround. Typically the struct DiskCache should not expose
-        any information about the underlying Redis metadata server, however
-        there is no direct way for redis cluster exchange complicated information
-        by using native Redis API, thus we need to rely on our Rocket web API
-        to help different nodes exchange Redis cluster key slot information
-        while doing scale out. **/
-        let mut cache = cache.lock().await;
-        cache.redis.yield_keyslots(p).await
-    }
 }
 
 #[derive(Eq)]
