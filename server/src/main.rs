@@ -6,6 +6,7 @@ extern crate log;
 
 use rocket::fs::NamedFile;
 use rocket::response::Redirect;
+use rocket::serde::json::Json;
 use rocket::State;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use tokio::sync::Mutex;
 
 mod cache;
 use cache::DiskCache;
+use cache::KeyslotId;
 
 fn setup_logger() -> Result<(), fern::InitError> {
     fern::Dispatch::new()
@@ -44,6 +46,32 @@ async fn get_file(
     DiskCache::get_file(cache.inner().clone(), uid).await
 }
 
+#[get("/scale-out")]
+async fn scale_out(cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
+    DiskCache::scale_out(cache.inner().clone()).await;
+    "success"
+}
+
+#[get("/keyslots/yield/<portion>")]
+async fn yield_keyslots(portion: f64, cache: &State<Arc<Mutex<DiskCache>>>) -> Json<Vec<KeyslotId>> {
+    let keyslots = DiskCache::yield_keyslots(cache.inner().clone(), portion).await;
+    Json(keyslots)
+}
+
+#[post("/keyslots/import", format="application/json", data="<keyslots_json>")]
+async fn import_keyslots(keyslots_json: Json<Vec<KeyslotId>>, cache_guard: &State<Arc<Mutex<DiskCache>>>) {
+    let mut cache_mutex = cache_guard.inner().clone();
+    let mut cache = cache_mutex.lock().await;
+    cache.redis.import_keyslot(keyslots_json.into_inner()).await;
+}
+
+#[post("/keyslots/migrate_to/<node_id>", format="application/json", data="<keyslots_json>")]
+async fn migrate_keyslots_to(keyslots_json: Json<Vec<KeyslotId>>, node_id: String, cache_guard: &State<Arc<Mutex<DiskCache>>>) {
+    let mut cache_mutex = cache_guard.inner().clone();
+    let mut cache = cache_mutex.lock().await;
+    cache.redis.migrate_keyslot_to(keyslots_json.into_inner(), node_id).await;
+}
+
 #[get("/stats")]
 async fn cache_stats(cache: &State<Arc<Mutex<DiskCache>>>) -> String {
     let stats = DiskCache::get_stats(cache.inner().clone()).await;
@@ -64,13 +92,11 @@ fn rocket() -> _ {
         PathBuf::from("/data/cache/"),
         3,
         vec![
-            "redis://node1:6379",
-            "redis://node2:6379",
-            "redis://node3:6379",
+            "redis://0.0.0.0:6379",
         ],
     ); // [TODO] make the args configurable from env
     rocket::build().manage(cache_manager).mount(
         "/",
-        routes![health_check, get_file, cache_stats, set_cache_size],
+        routes![health_check, get_file, cache_stats, set_cache_size, scale_out, yield_keyslots, migrate_keyslots_to, import_keyslots],
     )
 }

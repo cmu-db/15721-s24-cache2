@@ -21,6 +21,7 @@ RUN cargo install --path .
 
 # We do not need the Rust toolchain to run the binary!
 FROM redis:7.2.4
+RUN apt-get update && apt-get -y install curl
 COPY --from=builder /usr/local/cargo/bin/* /usr/local/bin
 COPY docker-entrypoint.sh redis.conf Rocket.toml /usr/local/bin/
 RUN chmod 755 /usr/local/bin/docker-entrypoint.sh

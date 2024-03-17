@@ -9,16 +9,19 @@ use std::io::Result as IoResult;
 use std::path::{Path, PathBuf};
 use std::str::from_utf8;
 use std::sync::Arc;
+use std::collections::BinaryHeap;
+use std::cmp::Reverse;
 use tokio::sync::Mutex;
 
 pub type FileUid = String;
+pub type KeyslotId = i16;
 
 pub struct DiskCache {
     cache_dir: PathBuf,
     max_size: u64,
     current_size: u64,
     access_order: VecDeque<String>, // Track access order for LRU eviction
-    redis: RedisServer,
+    pub redis: RedisServer,
 }
 
 impl DiskCache {
@@ -136,7 +139,48 @@ impl DiskCache {
         // Optionally trigger capacity enforcement immediately
         Self::ensure_capacity(&mut *cache).await;
     }
+
+    pub async fn scale_out(cache: Arc<Mutex<Self>>) {
+        let mut cache = cache.lock().await;
+        let to_move = cache.redis.yield_keyslots(0.01).await;
+        debug!("These slots are to move: {:?}", to_move);
+    }
+    pub async fn yield_keyslots(cache: Arc<Mutex<Self>>, p: f64) -> Vec<KeyslotId>{
+        /* This is a workaround. Typically the struct DiskCache should not expose
+        any information about the underlying Redis metadata server, however
+        there is no direct way for redis cluster exchange complicated information
+        by using native Redis API, thus we need to rely on our Rocket web API
+        to help different nodes exchange Redis cluster key slot information
+        while doing scale out. **/
+        let mut cache = cache.lock().await;
+        cache.redis.yield_keyslots(p).await
+    }
 }
+
+#[derive(Eq)]
+struct RedisKeyslot {
+    pub id: KeyslotId,
+    pub key_cnt: i64
+}
+
+impl Ord for RedisKeyslot {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.key_cnt.cmp(&other.key_cnt)
+    }
+}
+
+impl PartialOrd for RedisKeyslot {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for RedisKeyslot {
+    fn eq(&self, other: &Self) -> bool {
+        self.key_cnt == other.key_cnt
+    }
+}
+
 pub struct RedisServer {
     pub client: redis::cluster::ClusterClient,
     pub myid: String,
@@ -150,8 +194,44 @@ impl RedisServer {
             myid: String::from(""),
         })
     }
-    pub async fn location_lookup(&mut self, uid: FileUid) -> Option<String> {
-        let mut conn = self.client.get_connection().unwrap();
+    async fn own_slots_from_shards_info(&mut self, shards_info: Vec<Vec<redis::Value>>) -> Result<Vec<[KeyslotId; 2]>, String> {
+        let mut shard_iter = shards_info.iter();
+        let myid = self.get_myid();
+        loop {
+            if let Some(shard_info) = shard_iter.next() {
+                if let redis::Value::Bulk(nodes_info) = &shard_info[3] {
+                   if let redis::Value::Bulk(fields) = &nodes_info[0] {
+                       let mut node_id = String::from(""); 
+                       if let redis::Value::Data(x) = &fields[1] {
+                            node_id = String::from_utf8(x.to_vec()).unwrap();
+                        }
+                       if node_id == *myid {
+                            if let redis::Value::Bulk(slot_range) = &shard_info[1] {
+                                let mut own_slot_ranges = Vec::new();
+                                for i in (0..slot_range.len()).step_by(2) {
+                                    if let (redis::Value::Int(low), redis::Value::Int(high)) = 
+                                        (&slot_range[i], &slot_range[i+1]){
+                                            let low_id = *low as KeyslotId;
+                                            let high_id = *high as KeyslotId;
+                                            own_slot_ranges.push([low_id, high_id]);
+                                            debug!("this node has slot {} to {}", low_id, high_id);
+                                        }
+                                }
+                                return Ok(own_slot_ranges);
+                            }
+                       }
+                   }
+                }
+            } else {
+                debug!("This id is not found in the cluster");
+                return Err(String::from("This id is not found in the cluster"));
+            }
+        };
+    }
+    pub fn get_myid(&mut self) -> &String {
+        // self.myid cannot be determined at the instantiation moment because the cluster is formed
+        // via an external script running redis-cli command. This is a workaround to keep cluster
+        // id inside the struct.
         if self.myid.len() == 0 {
             let result = std::process::Command::new("redis-cli")
                 .arg("-c")
@@ -162,11 +242,11 @@ impl RedisServer {
             self.myid = String::from_utf8(result.stdout).unwrap();
             self.myid = String::from(self.myid.trim());
         }
-        let keyslot = redis::cmd("CLUSTER")
-            .arg("KEYSLOT")
-            .arg(uid)
-            .query::<i64>(&mut conn)
-            .unwrap();
+        &self.myid
+    }
+    pub async fn location_lookup(&mut self, uid: FileUid) -> Option<String> {
+        let mut conn = self.client.get_connection().unwrap();
+        let keyslot = self.which_slot(uid).await;
         debug!("keyslot of my_key: {}", keyslot);
         let shards = redis::cmd("CLUSTER")
             .arg("SHARDS")
@@ -182,7 +262,7 @@ impl RedisServer {
                         if let (redis::Value::Int(range_low), redis::Value::Int(range_high)) =
                             (&ranges[low_index], &ranges[high_index])
                         {
-                            if keyslot <= *range_high && keyslot >= *range_low {
+                            if keyslot <= *range_high as KeyslotId && keyslot >= *range_low as KeyslotId {
                                 if let redis::Value::Bulk(nodes_info) = &shard_info[3] {
                                     break Some(&nodes_info[0]);
                                 } else {
@@ -229,9 +309,10 @@ impl RedisServer {
                             }
                         }
                     }
+                    let myid = self.get_myid();
                     debug!("node_id: {}", node_id);
-                    debug!("myid: {}", self.myid);
-                    if node_id.eq(&self.myid) {
+                    debug!("myid: {}", myid);
+                    if node_id.eq(myid) {
                         debug!("this is the node!");
                         return None;
                     } else if node_id.len() == 0 {
@@ -254,7 +335,8 @@ impl RedisServer {
         let mut conn = self.client.get_connection().unwrap();
         let loc_str = loc.into_os_string().into_string().unwrap();
         debug!("try to set key [{}], value [{}] in redis", &uid, &loc_str);
-        let _ = conn.set::<String, String, String>(uid, loc_str); // [TODO] Error handling
+        let _ = conn.set::<String, String, String>(uid.clone(), loc_str); // [TODO] Error handling
+        let keyslot = self.which_slot(uid).await;
         Ok(())
     }
     pub async fn remove_file(&self, uid: FileUid) -> Result<(), ()> {
@@ -263,4 +345,94 @@ impl RedisServer {
         let _ = conn.del::<String, u8>(uid); // [TODO] Error handling
         Ok(())
     }
+    async fn which_slot(&self, uid: FileUid) -> KeyslotId {
+        let mut conn = self.client.get_connection().unwrap();
+        let keyslot = redis::cmd("CLUSTER")
+            .arg("KEYSLOT")
+            .arg(uid)
+            .query::<KeyslotId>(&mut conn)
+            .unwrap();
+        keyslot
+    }
+    pub async fn import_keyslot(&mut self, keyslots: Vec<KeyslotId>) {
+        let mut conn = self.client.get_connection().unwrap();
+        for keyslot in keyslots.iter() {
+            let result = std::process::Command::new("redis-cli")
+                .arg("-c")
+                .arg("cluster")
+                .arg("setslot")
+                .arg(keyslot.to_string())
+                .arg("NODE")
+                .arg(self.get_myid())
+                .output()
+                .expect("redis command setslot failed to start");
+            if let Ok(x) = redis::cmd("CLUSTER")
+                .arg("SETSLOT")
+                .arg(keyslot)
+                .arg("NODE")
+                .arg(self.get_myid())
+                .query::<()>(&mut conn) {
+
+                }
+        }
+    }
+    pub async fn migrate_keyslot_to(&self, keyslots: Vec<KeyslotId>, destination_node_id: String) {
+        let mut conn = self.client.get_connection().unwrap();
+        for keyslot in keyslots.iter() {
+            while let Ok(keys_to_remove) = redis::cmd("CLUSTER").arg("GETKEYSINSLOT").arg(keyslot).arg(10000).query::<Vec<String>>(&mut conn) {
+                if keys_to_remove.len() == 0 {
+                    break;
+                }
+                let _ = redis::cmd("DEL").arg(keys_to_remove).query::<()>(&mut conn);
+            }
+            let result = std::process::Command::new("redis-cli")
+                .arg("-c")
+                .arg("cluster")
+                .arg("setslot")
+                .arg(keyslot.to_string())
+                .arg("NODE")
+                .arg(destination_node_id.clone())
+                .output()
+                .expect("redis command setslot failed to start");
+        }
+    }
+    pub async fn yield_keyslots(&mut self, p: f64) -> Vec<KeyslotId> {
+        let mut conn = self.client.get_connection().unwrap();
+        let shards_info = redis::cmd("CLUSTER")
+            .arg("SHARDS")
+            .query::<Vec<Vec<redis::Value>>>(&mut conn)
+            .unwrap();
+        let mut slot_ranges = self.own_slots_from_shards_info(shards_info).await.unwrap();
+        let mut own_slot_cnt = 0;
+        let mut heap = BinaryHeap::new();
+        while let Some([low, high]) = slot_ranges.pop() {
+            own_slot_cnt += (high - low) + 1;
+           for keyslot_id in low..(high+1) {
+               let key_cnt = redis::cmd("CLUSTER")
+                   .arg("COUNTKEYSINSLOT")
+                   .arg(keyslot_id)
+                   .query::<i64>(&mut conn)
+                   .unwrap();
+               heap.push(Reverse(RedisKeyslot{
+                    id: keyslot_id,
+                    key_cnt: key_cnt
+               }));
+           }
+        }
+        let migrate_slot_cnt = (own_slot_cnt as f64 * p).floor() as i64;
+        let mut result = Vec::new();
+        let top_slot = &heap.peek().unwrap().0;
+        debug!("the least loaded key slot: {} ({} keys)", top_slot.id, top_slot.key_cnt);
+        debug!("{} of the total {} slot of this node is {}", p, own_slot_cnt, migrate_slot_cnt);
+        for _ in 0..migrate_slot_cnt {
+            if let Some(keyslot) = heap.pop() {
+                result.push(keyslot.0.id);
+            } else {
+                break;
+            }
+        }
+        debug!("These are slots to be migrate: {:?}", result);
+        result
+    }
+
 }
