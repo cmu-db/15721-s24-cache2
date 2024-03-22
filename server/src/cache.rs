@@ -16,6 +16,8 @@ use tokio::sync::Mutex;
 pub type FileUid = String;
 pub type KeyslotId = i16;
 
+pub const PORT_OFFSET_TO_WEB_SERVER: u16 = 20000;
+
 pub struct DiskCache {
     cache_dir: PathBuf,
     max_size: u64,
@@ -25,8 +27,9 @@ pub struct DiskCache {
 }
 
 impl DiskCache {
-    pub fn new(cache_dir: PathBuf, max_size: u64, redis_addrs: Vec<&str>) -> Arc<Mutex<Self>> {
+    pub fn new(cache_dir: PathBuf, max_size: u64, redis_addrs: Vec<String>) -> Arc<Mutex<Self>> {
         let current_size = 0; // Start with an empty cache for simplicity
+        let _ = std::fs::create_dir_all(cache_dir.clone());
         Arc::new(Mutex::new(Self {
             cache_dir,
             max_size,
@@ -41,8 +44,8 @@ impl DiskCache {
         let file_name: PathBuf;
         let mut cache = cache.lock().await;
         let redirect = cache.redis.location_lookup(uid_str.clone()).await;
-        if let Some(x) = redirect {
-            return Err(Redirect::to(format!("http://{}:8000/s3/{}", x, &uid_str)));
+        if let Some((x, p)) = redirect {
+            return Err(Redirect::to(format!("http://{}:{}/s3/{}", x, p + PORT_OFFSET_TO_WEB_SERVER, &uid_str)));
         }
         if let Some(redis_res) = cache.redis.get_file(uid_str.clone()).await {
             debug!("{} found in cache", &uid_str);
@@ -183,7 +186,7 @@ pub struct RedisServer {
 }
 
 impl RedisServer {
-    pub fn new(addrs: Vec<&str>) -> Result<Self, redis::RedisError> {
+    pub fn new(addrs: Vec<String>) -> Result<Self, redis::RedisError> {
         let client = redis::cluster::ClusterClient::new(addrs)?;
         Ok(RedisServer {
             client,
@@ -244,7 +247,7 @@ impl RedisServer {
         }
         &self.myid
     }
-    pub async fn location_lookup(&mut self, uid: FileUid) -> Option<String> {
+    pub async fn location_lookup(&mut self, uid: FileUid) -> Option<(String, u16)> {
         let mut conn = self.client.get_connection().unwrap();
         let keyslot = self.which_slot(uid).await;
         debug!("keyslot of my_key: {}", keyslot);
@@ -288,6 +291,7 @@ impl RedisServer {
         };
         let mut endpoint = String::from("");
         let mut node_id = String::from("");
+        let mut port: u16 = 6379;
         match target_shard {
             Some(info) => {
                 if let redis::Value::Bulk(fields) = info {
@@ -298,6 +302,11 @@ impl RedisServer {
                                 "endpoint" => {
                                     if let Some(redis::Value::Data(x)) = fields_iter.next() {
                                         endpoint = String::from_utf8(x.to_vec()).unwrap();
+                                    }
+                                }
+                                "port" => {
+                                    if let Some(redis::Value::Int(x)) = fields_iter.next() {
+                                        port = *x as u16;
                                     }
                                 }
                                 "id" => {
@@ -321,7 +330,7 @@ impl RedisServer {
                         debug!("Cannot find node!");
                     } else {
                         debug!("redirect to {}", endpoint);
-                        return Some(endpoint);
+                        return Some((endpoint, port));
                     }
                 }
             }

@@ -110,13 +110,17 @@ async fn set_cache_size(new_size: u64, cache: &State<Arc<Mutex<DiskCache>>>) -> 
 #[launch]
 fn rocket() -> _ {
     let _ = setup_logger();
-    let _ = std::fs::create_dir_all("/data/cache");
+    let redis_port = std::env::var("REDIS_PORT").unwrap_or(String::from("6379")).parse::<u16>().unwrap();
+    let rocket_port = cache::PORT_OFFSET_TO_WEB_SERVER + redis_port;
+    let cache_dir = std::env::var("CACHE_DIR").unwrap_or(format!("./cache_{}", rocket_port));
     let cache_manager = DiskCache::new(
-        PathBuf::from("/data/cache/"),
+        PathBuf::from(cache_dir),
         3,
-        vec!["redis://0.0.0.0:6379"],
+        vec![format!("redis://0.0.0.0:{}", redis_port)],
     ); // [TODO] make the args configurable from env
-    rocket::build().manage(cache_manager).mount(
+    rocket::build()
+        .configure(rocket::Config::figment().merge(("port", rocket_port)))
+        .manage(cache_manager).mount(
         "/",
         routes![
             health_check,
