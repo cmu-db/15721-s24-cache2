@@ -14,3 +14,4 @@ clap = "3"
 rocket = { version = "0.5.0", features = ["json"] }
 redis = { version = "0.24.0", features = ["cluster"] }
 reqwest = "0.11"
+url = "2.5"

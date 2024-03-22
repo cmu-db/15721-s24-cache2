@@ -11,6 +11,7 @@ services:
       - cluster-network
     environment:
       - REDIS_PORT=6379
+      - S3_ENDPOINT=http://mocks3
       - ROCKET_CONFIG=/usr/local/bin/Rocket.toml
       - ROCKET_ENV=development
 
@@ -26,6 +27,7 @@ services:
       - cluster-network
     environment:
       - REDIS_PORT=6379
+      - S3_ENDPOINT=http://mocks3
       - ROCKET_CONFIG=/usr/local/bin/Rocket.toml
       - ROCKET_ENV=development
 
@@ -34,13 +36,13 @@ services:
     image: istziio
     build: .
     ports:
-      - "8002:8000"
       - "6381:6379"
       - "16381:16379"
     networks:
       - cluster-network
     environment:
       - REDIS_PORT=6379
+      - S3_ENDPOINT=http://mocks3
       - ROCKET_CONFIG=/usr/local/bin/Rocket.toml
       - ROCKET_ENV=development
 

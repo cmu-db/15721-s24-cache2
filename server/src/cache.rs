@@ -8,30 +8,37 @@ use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::prelude::*;
 use std::io::Result as IoResult;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::str::from_utf8;
 use std::sync::Arc;
+use url::Url;
 use tokio::sync::Mutex;
 
 pub type FileUid = String;
 pub type KeyslotId = i16;
+
+pub const PORT_OFFSET_TO_WEB_SERVER: u16 = 20000;
 
 pub struct DiskCache {
     cache_dir: PathBuf,
     max_size: u64,
     current_size: u64,
     access_order: VecDeque<String>, // Track access order for LRU eviction
+    s3_endpoint: String,
     pub redis: RedisServer,
 }
 
 impl DiskCache {
-    pub fn new(cache_dir: PathBuf, max_size: u64, redis_addrs: Vec<&str>) -> Arc<Mutex<Self>> {
+    pub fn new(cache_dir: PathBuf, max_size: u64, s3_endpoint: String, redis_addrs: Vec<String>) -> Arc<Mutex<Self>> {
         let current_size = 0; // Start with an empty cache for simplicity
+        let _ = std::fs::create_dir_all(cache_dir.clone());
         Arc::new(Mutex::new(Self {
             cache_dir,
             max_size,
             current_size,
             access_order: VecDeque::new(),
+            s3_endpoint,
             redis: RedisServer::new(redis_addrs).unwrap(), // [TODO]: Error Handling
         }))
     }
@@ -41,8 +48,18 @@ impl DiskCache {
         let file_name: PathBuf;
         let mut cache = cache.lock().await;
         let redirect = cache.redis.location_lookup(uid_str.clone()).await;
-        if let Some(x) = redirect {
-            return Err(Redirect::to(format!("http://{}:8000/s3/{}", x, &uid_str)));
+        if let Some((x, p)) = redirect {
+            let mut url = Url::parse("http://localhost").unwrap();
+            let address: IpAddr = x.parse().unwrap();
+            if address.is_loopback() {
+                url.set_host(Some("localhost")).unwrap();
+            } else {
+                url.set_ip_host(address).unwrap();
+            }
+            url.set_port(Some(p + PORT_OFFSET_TO_WEB_SERVER)).unwrap();
+            url.set_path(&format!("s3/{}", &uid_str)[..]);
+            debug!("tell client to redirect to {}", url.to_string());
+            return Err(Redirect::to(url.to_string()));
         }
         if let Some(redis_res) = cache.redis.get_file(uid_str.clone()).await {
             debug!("{} found in cache", &uid_str);
@@ -74,8 +91,7 @@ impl DiskCache {
 
     async fn get_s3_file_to_cache(&mut self, s3_file_name: &str) -> IoResult<PathBuf> {
         // Load from "S3", simulate adding to cache
-        let s3_endpoint = "http://mocks3";
-        let s3_file_path = Path::new(s3_endpoint).join(s3_file_name);
+        let s3_file_path = Path::new(&self.s3_endpoint).join(s3_file_name);
         let resp = reqwest::get(s3_file_path.into_os_string().into_string().unwrap())
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -183,7 +199,7 @@ pub struct RedisServer {
 }
 
 impl RedisServer {
-    pub fn new(addrs: Vec<&str>) -> Result<Self, redis::RedisError> {
+    pub fn new(addrs: Vec<String>) -> Result<Self, redis::RedisError> {
         let client = redis::cluster::ClusterClient::new(addrs)?;
         Ok(RedisServer {
             client,
@@ -232,9 +248,12 @@ impl RedisServer {
         // self.myid cannot be determined at the instantiation moment because the cluster is formed
         // via an external script running redis-cli command. This is a workaround to keep cluster
         // id inside the struct.
+        let redis_port = std::env::var("REDIS_PORT").unwrap_or(String::from("6379")).parse::<u16>().unwrap();
         if self.myid.len() == 0 {
             let result = std::process::Command::new("redis-cli")
                 .arg("-c")
+                .arg("-p")
+                .arg(redis_port.to_string())
                 .arg("cluster")
                 .arg("myid")
                 .output()
@@ -244,7 +263,7 @@ impl RedisServer {
         }
         &self.myid
     }
-    pub async fn location_lookup(&mut self, uid: FileUid) -> Option<String> {
+    pub async fn location_lookup(&mut self, uid: FileUid) -> Option<(String, u16)> {
         let mut conn = self.client.get_connection().unwrap();
         let keyslot = self.which_slot(uid).await;
         debug!("keyslot of my_key: {}", keyslot);
@@ -288,6 +307,7 @@ impl RedisServer {
         };
         let mut endpoint = String::from("");
         let mut node_id = String::from("");
+        let mut port: u16 = 6379;
         match target_shard {
             Some(info) => {
                 if let redis::Value::Bulk(fields) = info {
@@ -295,9 +315,14 @@ impl RedisServer {
                     while let Some(redis::Value::Data(field_name)) = fields_iter.next() {
                         if let Ok(x) = from_utf8(field_name) {
                             match x {
-                                "endpoint" => {
+                                "ip" => {
                                     if let Some(redis::Value::Data(x)) = fields_iter.next() {
                                         endpoint = String::from_utf8(x.to_vec()).unwrap();
+                                    }
+                                }
+                                "port" => {
+                                    if let Some(redis::Value::Int(x)) = fields_iter.next() {
+                                        port = *x as u16;
                                     }
                                 }
                                 "id" => {
@@ -320,8 +345,8 @@ impl RedisServer {
                     } else if node_id.len() == 0 {
                         debug!("Cannot find node!");
                     } else {
-                        debug!("redirect to {}", endpoint);
-                        return Some(endpoint);
+                        debug!("redirect to {}:{}", endpoint, port);
+                        return Some((endpoint, port));
                     }
                 }
             }
