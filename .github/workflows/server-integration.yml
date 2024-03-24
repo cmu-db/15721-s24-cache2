@@ -23,7 +23,7 @@ jobs:
           - ${{ github.workspace }}/tests/test_s3_files:/usr/share/nginx/html
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Setup BATS testing framework
       uses: mig4/setup-bats@v1.2.0
     - name: setup-redis-1
