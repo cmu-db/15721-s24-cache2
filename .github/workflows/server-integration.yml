@@ -2,12 +2,12 @@ name: Server Integration Test
 on:
   push:
     branches: 
-      - "main"
-      - "cp2-server"
-      - "cp2-server-inttest"
+      - main
+      - cp2-server
+      - cp2-server-inttest
   pull_request:
     branches: 
-      - "main"
+      - main
 env:
   CARGO_TERM_COLOR: always
 
