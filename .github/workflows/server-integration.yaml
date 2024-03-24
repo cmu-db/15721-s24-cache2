@@ -33,17 +33,17 @@ jobs:
       uses: shogo82148/actions-setup-redis@v1
       with:
         redis-port: 6379
-        redis-conf: redis.conf
+        redis-conf: ${{ github.workspace }}/redis.conf
     - name: setup-redis-2
       uses: shogo82148/actions-setup-redis@v1
       with:
         redis-port: 6380
-        redis-conf: redis.conf
+        redis-conf: ${{ github.workspace }}/redis.conf
     - name: setup-redis-3
       uses: shogo82148/actions-setup-redis@v1
       with:
         redis-port: 6381
-        redis-conf: redis.conf
+        redis-conf: ${{ github.workspace }}/redis.conf
     - name: Create redis cluster
       run: redis-cli --cluster create localhost:6379 localhost:6380 localhost:6381 --cluster-replicas 0
     - name: Build
@@ -54,4 +54,4 @@ jobs:
         REDIS_PORT=6380 cargo run &
         REDIS_PORT=6381 cargo run &
     - name: Test get file
-      run: bats tests/server-integration.bats
+      run: bats ${{ github.workspace }}/tests/server-integration.bats
