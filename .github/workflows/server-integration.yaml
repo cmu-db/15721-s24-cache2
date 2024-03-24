@@ -35,7 +35,7 @@ jobs:
         redis-port: 6379
         redis-conf: |
           cluster-enabled yes
-          cluster-config-file nodes.conf
+          cluster-config-file nodes-1.conf
           cluster-node-timeout 5000
           appendonly yes
     - name: setup-redis-2
@@ -44,7 +44,7 @@ jobs:
         redis-port: 6380
         redis-conf: |
           cluster-enabled yes
-          cluster-config-file nodes.conf
+          cluster-config-file nodes-2.conf
           cluster-node-timeout 5000
           appendonly yes
     - name: setup-redis-3
@@ -53,7 +53,7 @@ jobs:
         redis-port: 6381
         redis-conf: |
           cluster-enabled yes
-          cluster-config-file nodes.conf
+          cluster-config-file nodes-3.conf
           cluster-node-timeout 5000
           appendonly yes
     - name: Create redis cluster
