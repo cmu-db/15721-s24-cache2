@@ -20,7 +20,7 @@ jobs:
         ports:
           - 6333:80
         volumes:
-          - /data:/usr/share/nginx/html
+          - ${{ github.workspace }}/data:/usr/share/nginx/html
         options: --name mocks3
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +28,7 @@ jobs:
     - name: Setup BATS testing framework
       uses: mig4/setup-bats@v1.2.0
     - name: Move mock S3 data
-      run: cp -r tests/test_s3_files/ /data/
+      run: cp -r tests/test_s3_files/. ${{ github.workspace }}/data
     - name: setup-redis-1
       uses: shogo82148/actions-setup-redis@v1
       with:
