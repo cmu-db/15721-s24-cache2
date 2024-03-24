@@ -2,7 +2,7 @@ name: Server Integration Test
 run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
 on:
   push:
-    branches: ["main", "cp2-server"]
+    branches: ["main", "cp2-server", "cp2-server-inttest"]
   pull_request:
     branches: ["main"]
 env:
