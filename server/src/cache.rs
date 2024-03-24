@@ -23,11 +23,12 @@ pub struct DiskCache {
     max_size: u64,
     current_size: u64,
     access_order: VecDeque<String>, // Track access order for LRU eviction
+    s3_endpoint: String,
     pub redis: RedisServer,
 }
 
 impl DiskCache {
-    pub fn new(cache_dir: PathBuf, max_size: u64, redis_addrs: Vec<String>) -> Arc<Mutex<Self>> {
+    pub fn new(cache_dir: PathBuf, max_size: u64, s3_endpoint: String, redis_addrs: Vec<String>) -> Arc<Mutex<Self>> {
         let current_size = 0; // Start with an empty cache for simplicity
         let _ = std::fs::create_dir_all(cache_dir.clone());
         Arc::new(Mutex::new(Self {
@@ -35,6 +36,7 @@ impl DiskCache {
             max_size,
             current_size,
             access_order: VecDeque::new(),
+            s3_endpoint,
             redis: RedisServer::new(redis_addrs).unwrap(), // [TODO]: Error Handling
         }))
     }
@@ -77,8 +79,7 @@ impl DiskCache {
 
     async fn get_s3_file_to_cache(&mut self, s3_file_name: &str) -> IoResult<PathBuf> {
         // Load from "S3", simulate adding to cache
-        let s3_endpoint = "http://mocks3";
-        let s3_file_path = Path::new(s3_endpoint).join(s3_file_name);
+        let s3_file_path = Path::new(&self.s3_endpoint).join(s3_file_name);
         let resp = reqwest::get(s3_file_path.into_os_string().into_string().unwrap())
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;

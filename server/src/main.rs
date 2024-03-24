@@ -113,9 +113,11 @@ fn rocket() -> _ {
     let redis_port = std::env::var("REDIS_PORT").unwrap_or(String::from("6379")).parse::<u16>().unwrap();
     let rocket_port = cache::PORT_OFFSET_TO_WEB_SERVER + redis_port;
     let cache_dir = std::env::var("CACHE_DIR").unwrap_or(format!("./cache_{}", rocket_port));
+    let s3_endpoint = std::env::var("S3_ENDPOINT").unwrap_or(String::from("http://0.0.0.0:6333"));
     let cache_manager = DiskCache::new(
         PathBuf::from(cache_dir),
         3,
+        s3_endpoint,
         vec![format!("redis://0.0.0.0:{}", redis_port)],
     ); // [TODO] make the args configurable from env
     rocket::build()
