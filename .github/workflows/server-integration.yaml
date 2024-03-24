@@ -20,7 +20,7 @@ jobs:
         ports:
           - 6333:80
         volumes:
-          - ./tests/test_s3_files:/usr/share/nginx/html
+          - ${{ github.workspace }}/tests/test_s3_files:/usr/share/nginx/html
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
