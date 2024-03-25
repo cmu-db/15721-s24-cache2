@@ -13,7 +13,6 @@
 }
 
 @test "get_file file correctness" {
-  ls $TEST_ROOT/../../data
   curl -sSL -o tmp localhost:26379/s3/test1.txt
   cat tmp
   [ "$(cat tmp)" = "$(cat $TEST_ROOT/test_s3_files/test1.txt)" ]
