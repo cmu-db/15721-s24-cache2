@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::str::from_utf8;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
+use std::io::ErrorKind;
 pub type FileUid = String;
 pub type KeyslotId = i16;
 
@@ -79,6 +79,16 @@ impl DiskCache {
         let resp = reqwest::get(s3_file_path.into_os_string().into_string().unwrap())
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+        // Check if the file was not found in S3
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(std::io::Error::new(ErrorKind::NotFound, "File not found in S3"));
+        }
+
+        // Ensure the response status is successful, otherwise return an error
+        if !resp.status().is_success() {
+            return Err(std::io::Error::new(ErrorKind::Other, format!("Failed to fetch file from S3 with status: {}", resp.status())));
+        }
         let file = resp.bytes().await.unwrap(); // [TODO] error handling
         self.ensure_capacity().await;
         fs::File::create(Path::new(&self.cache_dir).join(s3_file_name))?.write_all(&file[..])?;
