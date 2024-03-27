@@ -1,59 +1,84 @@
+// Standard Library imports
+use std::{
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap, VecDeque, hash_map::DefaultHasher},
+    fs,
+    hash::{Hash, Hasher},
+    io::{prelude::*, Result as IoResult, ErrorKind},
+    path::{Path, PathBuf},
+    str::from_utf8,
+    sync::Arc,
+};
+
+// External crate imports
 use log::info;
 use redis::Commands;
-use rocket::fs::NamedFile;
-use rocket::response::Redirect;
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
-use std::collections::{HashMap, VecDeque};
-use std::fs;
-use std::io::prelude::*;
-use std::io::Result as IoResult;
-use std::path::{Path, PathBuf};
-use std::str::from_utf8;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use std::io::ErrorKind;
+use rocket::{fs::NamedFile, response::Redirect};
+use tokio::sync::{Mutex, RwLock, RwLockReadGuard};
+
+// Type Definitions
 pub type FileUid = String;
 pub type KeyslotId = i16;
+
+// Constants
+const SHARD_COUNT: u64 = 3;
+
+// Utilities -----------------------------------------------------------------
+
+/// Calculates a consistent hash for the given UID.
+fn hash(uid: &FileUid) -> usize {
+    let mut hasher = DefaultHasher::new();
+    uid.hash(&mut hasher);
+    hasher.finish() as usize
+}
+
+
+// Cache Structures -----------------------------------------------------------
+
+pub struct ConcurrentDiskCache {
+    cache_dir: PathBuf,
+    max_size: u64,
+    shards: Vec<Arc<Mutex<DiskCache>>>,
+    pub redis: Arc<RwLock<RedisServer>>,
+}
 
 pub struct DiskCache {
     cache_dir: PathBuf,
     max_size: u64,
     current_size: u64,
-    access_order: VecDeque<String>, // Track access order for LRU eviction
-    pub redis: RedisServer,
+    access_order: VecDeque<String>,
 }
 
+// DiskCache Implementation ---------------------------------------------------
+
 impl DiskCache {
-    pub fn new(cache_dir: PathBuf, max_size: u64, redis_addrs: Vec<&str>) -> Arc<Mutex<Self>> {
+    pub fn new(cache_dir: PathBuf, max_size: u64) -> Arc<Mutex<Self>> {
         let current_size = 0; // Start with an empty cache for simplicity
         Arc::new(Mutex::new(Self {
             cache_dir,
             max_size,
             current_size,
             access_order: VecDeque::new(),
-            redis: RedisServer::new(redis_addrs).unwrap(), // [TODO]: Error Handling
         }))
     }
 
-    pub async fn get_file(cache: Arc<Mutex<Self>>, uid: PathBuf) -> Result<NamedFile, Redirect> {
+    pub async fn get_file(cache: Arc<Mutex<Self>>, uid: PathBuf, redis_read: &RwLockReadGuard<'_, RedisServer>) -> Result<NamedFile, Redirect> {
         let uid_str = uid.into_os_string().into_string().unwrap();
         let file_name: PathBuf;
         let mut cache = cache.lock().await;
-        let redirect = cache.redis.location_lookup(uid_str.clone()).await;
+        let redirect = redis_read.location_lookup(uid_str.clone()).await;
         if let Some(x) = redirect {
             return Err(Redirect::to(format!("http://{}:8000/s3/{}", x, &uid_str)));
         }
-        if let Some(redis_res) = cache.redis.get_file(uid_str.clone()).await {
+        if let Some(redis_res) = redis_read.get_file(uid_str.clone()).await {
             debug!("{} found in cache", &uid_str);
             file_name = redis_res;
         } else {
-            match cache.get_s3_file_to_cache(&uid_str).await {
+            match cache.get_s3_file_to_cache(&uid_str, &redis_read).await {
                 Ok(cache_file_name) => {
                     debug!("{} fetched from S3", &uid_str);
                     file_name = cache_file_name;
-                    let _ = cache
-                        .redis
+                    let _ = redis_read
                         .set_file_cache_loc(uid_str.clone(), file_name.clone())
                         .await;
                 }
@@ -72,7 +97,7 @@ impl DiskCache {
             .map_err(|_| Redirect::to("/not_found_on_this_disk"));
     }
 
-    async fn get_s3_file_to_cache(&mut self, s3_file_name: &str) -> IoResult<PathBuf> {
+    async fn get_s3_file_to_cache(&mut self, s3_file_name: &str, redis_read: &RwLockReadGuard<'_, RedisServer> ) -> IoResult<PathBuf> {
         // Load from "S3", simulate adding to cache
         let s3_endpoint = "http://mocks3";
         let s3_file_path = Path::new(s3_endpoint).join(s3_file_name);
@@ -90,7 +115,7 @@ impl DiskCache {
             return Err(std::io::Error::new(ErrorKind::Other, format!("Failed to fetch file from S3 with status: {}", resp.status())));
         }
         let file = resp.bytes().await.unwrap(); // [TODO] error handling
-        self.ensure_capacity().await;
+        self.ensure_capacity(redis_read).await;
         fs::File::create(Path::new(&self.cache_dir).join(s3_file_name))?.write_all(&file[..])?;
         let file_size = 1; // Assume each file has size 1 for simplicity
         self.current_size += file_size;
@@ -98,7 +123,7 @@ impl DiskCache {
         return Ok(Path::new("").join(s3_file_name));
     }
 
-    async fn ensure_capacity(&mut self) {
+    async fn ensure_capacity(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer> ) {
         // Trigger eviction if the cache is full or over its capacity
         while self.current_size >= self.max_size && !self.access_order.is_empty() {
             if let Some(evicted_file_name) = self.access_order.pop_front() {
@@ -109,7 +134,7 @@ impl DiskCache {
                         if let Ok(_) = fs::remove_file(&evicted_path) {
                             // Ensure the cache size is reduced by the actual size of the evicted file
                             self.current_size -= 1;
-                            let _ = self.redis.remove_file(evicted_file_name.clone()).await;
+                            let _ = redis_read.remove_file(evicted_file_name.clone()).await;
 
                             info!("Evicted file: {}", evicted_file_name);
                         } else {
@@ -142,7 +167,73 @@ impl DiskCache {
         );
         stats
     }
+}
 
+// ConcurrentDiskCache Implementation -----------------------------------------
+
+impl ConcurrentDiskCache {
+    pub fn new(cache_dir: PathBuf, max_size: u64, redis_addrs: Vec<&str>) -> Self {
+        let shard_max_size = max_size / SHARD_COUNT as u64;
+        let redis_server = RedisServer::new(redis_addrs).unwrap();
+        let redis = Arc::new(RwLock::new(redis_server));
+        let shards = (0..SHARD_COUNT).map(|_| {
+            DiskCache::new(cache_dir.clone(), shard_max_size)
+        }).collect::<Vec<_>>();
+        
+        Self {
+            cache_dir,
+            max_size,
+            shards,
+            redis,
+        }
+    }
+    pub async fn get_file(&self, uid: PathBuf) -> Result<NamedFile, Redirect> {
+        let uid = uid.into_os_string().into_string().unwrap();
+        // Use read lock for read operations
+        let redis_read = self.redis.read().await; // Acquiring a read lock
+        if !redis_read.mapping_initialized {
+            drop(redis_read); // Drop read lock before acquiring write lock
+            
+            let mut redis_write = self.redis.write().await; // Acquiring a write lock
+            if let Err(e) = redis_write.update_slot_to_node_mapping().await {
+                eprintln!("Error updating slot-to-node mapping: {:?}", e);
+                return Err(Redirect::to("/error_updating_mapping"));
+            }
+            redis_write.get_myid();
+            redis_write.mapping_initialized = true;
+            drop(redis_write);
+            debug!("Initialization complete, dropped Redis write lock");
+        } else {
+            drop(redis_read);
+        }
+        let redis_read = self.redis.read().await;
+        let shard_index = hash(&uid) % self.shards.len(); // Hash UID to select a shard
+        let shard = &self.shards[shard_index];
+        // Debug message showing shard selection
+        debug!(
+            "Selected shard index: {} for uid: {}",
+            shard_index, &uid
+        );
+        let result = DiskCache::get_file(shard.clone(), uid.into(), &redis_read).await;
+        drop(redis_read);
+        self.print_cache_state().await;
+        result
+    }
+
+    pub async fn print_cache_state(&self) {
+        debug!("Current cache state:");
+        for (index, shard) in self.shards.iter().enumerate() {
+            let shard_guard = shard.lock().await; // Lock each shard to access its state safely
+            let files_in_shard: Vec<_> = shard_guard.access_order.iter().collect();
+            debug!(
+                "Hash Slot/Shard {}: Current Size = {}, Files = {:?}",
+                index,
+                shard_guard.current_size,
+                files_in_shard
+            );
+        }
+    }
+    /* 
     pub async fn set_max_size(cache: Arc<Mutex<Self>>, new_size: u64) {
         let mut cache = cache.lock().await;
         cache.max_size = new_size;
@@ -155,6 +246,7 @@ impl DiskCache {
         let to_move = cache.redis.yield_keyslots(0.01).await;
         debug!("These slots are to move: {:?}", to_move);
     }
+    */
 }
 
 #[derive(Eq)]
@@ -187,25 +279,35 @@ impl PartialEq for RedisKeyslot {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct NodeInfo {
+    pub node_id: String,
+    pub endpoint: String,
+}
 pub struct RedisServer {
     pub client: redis::cluster::ClusterClient,
     pub myid: String,
+    slot_to_node_mapping: HashMap<KeyslotId, NodeInfo>,
+    mapping_initialized: bool,
 }
 
 impl RedisServer {
     pub fn new(addrs: Vec<&str>) -> Result<Self, redis::RedisError> {
         let client = redis::cluster::ClusterClient::new(addrs)?;
-        Ok(RedisServer {
+        let server = RedisServer {
             client,
             myid: String::from(""),
-        })
+            slot_to_node_mapping: HashMap::new(),
+            mapping_initialized: false,
+        };
+        Ok(server)
     }
     async fn own_slots_from_shards_info(
-        &mut self,
+        &self,
         shards_info: Vec<Vec<redis::Value>>,
     ) -> Result<Vec<[KeyslotId; 2]>, String> {
         let mut shard_iter = shards_info.iter();
-        let myid = self.get_myid();
+        let myid = &self.myid;
         loop {
             if let Some(shard_info) = shard_iter.next() {
                 if let redis::Value::Bulk(nodes_info) = &shard_info[3] {
@@ -254,90 +356,83 @@ impl RedisServer {
         }
         &self.myid
     }
-    pub async fn location_lookup(&mut self, uid: FileUid) -> Option<String> {
+    // Function to update the slot-to-node mapping
+    pub async fn update_slot_to_node_mapping(&mut self) -> Result<(), ()> {
         let mut conn = self.client.get_connection().unwrap();
-        let keyslot = self.which_slot(uid).await;
-        debug!("keyslot of my_key: {}", keyslot);
-        let shards = redis::cmd("CLUSTER")
-            .arg("SHARDS")
-            .query::<Vec<Vec<redis::Value>>>(&mut conn)
-            .unwrap();
-        let mut shard_iter = shards.iter();
-        let target_shard: Option<redis::Value> = loop {
-            if let Some(shard_info) = shard_iter.next() {
-                if let redis::Value::Bulk(ranges) = &shard_info[1] {
-                    let mut low_index = 0;
-                    let mut high_index = 1;
-                    let node_info = loop {
-                        if let (redis::Value::Int(range_low), redis::Value::Int(range_high)) =
-                            (&ranges[low_index], &ranges[high_index])
-                        {
-                            if keyslot <= *range_high as KeyslotId
-                                && keyslot >= *range_low as KeyslotId
-                            {
-                                if let redis::Value::Bulk(nodes_info) = &shard_info[3] {
-                                    break Some(&nodes_info[0]);
-                                } else {
-                                    break None;
-                                }
-                            }
-                        }
-                        low_index += 2;
-                        high_index += 2;
-                        if low_index >= ranges.len() {
-                            break None;
-                        }
-                    };
-                    if node_info.is_some() {
-                        break node_info.cloned();
-                    }
-                }
-            } else {
-                break None;
-            }
-        };
-        let mut endpoint = String::from("");
-        let mut node_id = String::from("");
-        match target_shard {
-            Some(info) => {
-                if let redis::Value::Bulk(fields) = info {
-                    let mut fields_iter = fields.iter();
-                    while let Some(redis::Value::Data(field_name)) = fields_iter.next() {
-                        if let Ok(x) = from_utf8(field_name) {
-                            match x {
-                                "endpoint" => {
-                                    if let Some(redis::Value::Data(x)) = fields_iter.next() {
-                                        endpoint = String::from_utf8(x.to_vec()).unwrap();
+        let shards = redis::cmd("CLUSTER").arg("SHARDS").query::<Vec<Vec<redis::Value>>>(&mut conn).unwrap();
+        let mut new_mapping: HashMap<KeyslotId, NodeInfo> = HashMap::new();
+    
+        for shard_info in shards {
+            if let [_, redis::Value::Bulk(slot_ranges), _, redis::Value::Bulk(nodes_info)] = &shard_info[..] {
+                if let Some(redis::Value::Bulk(node_info)) = nodes_info.first() {
+                    // Initialize variables to hold id and endpoint
+                    let mut node_id = String::new();
+                    let mut endpoint = String::new();
+    
+                    // Iterate through the node_info array
+                    let mut iter = node_info.iter();
+                    while let Some(redis::Value::Data(key)) = iter.next() {
+                        if let Ok(key_str) = std::str::from_utf8(key) {
+                            debug!("key_str: {}", key_str);
+                            // Match the key to decide what to do with the value
+                            match key_str {
+                                "id" => {
+                                    if let Some(redis::Value::Data(value)) = iter.next() {
+                                        node_id = String::from_utf8(value.clone()).expect("Invalid UTF-8 for node_id");
+                                        debug!("Node ID: {}", node_id);
                                     }
                                 }
-                                "id" => {
-                                    if let Some(redis::Value::Data(x)) = fields_iter.next() {
-                                        node_id = String::from_utf8(x.to_vec()).unwrap();
+                                "endpoint" => {
+                                    if let Some(redis::Value::Data(value)) = iter.next() {
+                                        endpoint = String::from_utf8(value.clone()).expect("Invalid UTF-8 for endpoint");
+                                        debug!("Endpoint: {}", endpoint);
                                     }
                                 }
                                 _ => {
-                                    fields_iter.next();
+                                    iter.next();
+                                } // Ignore other keys
+                            }
+                        }
+                    }
+    
+                    // Check if we have both id and endpoint
+                    if !node_id.is_empty() && !endpoint.is_empty() {
+                        for slots in slot_ranges.chunks(2) {
+                            if let [redis::Value::Int(start), redis::Value::Int(end)] = slots {
+                                for slot in *start..=*end {
+                                    let info = NodeInfo { node_id: node_id.clone(), endpoint: endpoint.clone() };
+                                    new_mapping.insert(slot as KeyslotId, info);
                                 }
                             }
                         }
                     }
-                    let myid = self.get_myid();
-                    debug!("node_id: {}", node_id);
-                    debug!("myid: {}", myid);
-                    if node_id.eq(myid) {
-                        debug!("this is the node!");
-                        return None;
-                    } else if node_id.len() == 0 {
-                        debug!("Cannot find node!");
-                    } else {
-                        debug!("redirect to {}", endpoint);
-                        return Some(endpoint);
-                    }
                 }
             }
-            None => debug!("No shard match!"),
         }
-        None
+    
+        if new_mapping.is_empty() {
+            debug!("No slots were found for any nodes. The mapping might be incorrect.");
+            return Err(());
+        }
+    
+        self.slot_to_node_mapping = new_mapping;
+        debug!("Updated slot-to-node mapping: {:?}", self.slot_to_node_mapping);
+        Ok(())
+    } 
+    // Location lookup function that uses the updated mapping
+    pub async fn location_lookup(& self, uid: FileUid) -> Option<String> {
+        let slot = self.which_slot(uid).await;
+        debug!("Looking up location for slot: {}", slot);
+        
+        self.slot_to_node_mapping.get(&slot).map(|node_info| {
+            if node_info.node_id == self.myid {
+                debug!("Slot {} is local to this node", slot);
+                None // If the slot is local, we do not need to redirect.
+            } else {
+                debug!("Redirecting slot {} to node ID {} at {}", slot, node_info.node_id, node_info.endpoint);
+                Some(node_info.endpoint.clone())
+            }
+        }).flatten()
     }
     pub async fn get_file(&self, uid: FileUid) -> Option<PathBuf> {
         let mut conn = self.client.get_connection().unwrap();
@@ -365,7 +460,7 @@ impl RedisServer {
             .unwrap();
         keyslot
     }
-    pub async fn import_keyslot(&mut self, keyslots: Vec<KeyslotId>) {
+    pub async fn import_keyslot(&self, keyslots: Vec<KeyslotId>) {
         let mut conn = self.client.get_connection().unwrap();
         for keyslot in keyslots.iter() {
             let _ = std::process::Command::new("redis-cli") // TODO: error handling
@@ -374,14 +469,14 @@ impl RedisServer {
                 .arg("setslot")
                 .arg(keyslot.to_string())
                 .arg("NODE")
-                .arg(self.get_myid())
+                .arg(&self.myid)
                 .output()
                 .expect("redis command setslot failed to start");
             if let Ok(_) = redis::cmd("CLUSTER") // TODO: error handling
                 .arg("SETSLOT")
                 .arg(keyslot)
                 .arg("NODE")
-                .arg(self.get_myid())
+                .arg(&self.myid)
                 .query::<()>(&mut conn)
             {}
         }
@@ -411,7 +506,7 @@ impl RedisServer {
                 .expect("redis command setslot failed to start");
         }
     }
-    pub async fn yield_keyslots(&mut self, p: f64) -> Vec<KeyslotId> {
+    pub async fn yield_keyslots(&self, p: f64) -> Vec<KeyslotId> {
         let mut conn = self.client.get_connection().unwrap();
         let shards_info = redis::cmd("CLUSTER")
             .arg("SHARDS")

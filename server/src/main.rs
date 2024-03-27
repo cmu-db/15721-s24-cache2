@@ -14,6 +14,7 @@ use tokio::sync::Mutex;
 
 mod cache;
 use cache::DiskCache;
+use cache::ConcurrentDiskCache;
 use cache::KeyslotId;
 
 fn setup_logger() -> Result<(), fern::InitError> {
@@ -41,16 +42,18 @@ fn health_check() -> &'static str {
 #[get("/s3/<uid..>")]
 async fn get_file(
     uid: PathBuf,
-    cache: &State<Arc<Mutex<DiskCache>>>,
+    cache: &State<Arc<ConcurrentDiskCache>>,
 ) -> Result<NamedFile, Redirect> {
-    DiskCache::get_file(cache.inner().clone(), uid).await
+    cache.inner().get_file(uid).await
 }
 
+/* 
 #[get("/scale-out")]
 async fn scale_out(cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
     DiskCache::scale_out(cache.inner().clone()).await;
     "success"
 }
+
 
 #[get("/keyslots/yield/<p>")]
 async fn yield_keyslots(
@@ -101,32 +104,35 @@ async fn cache_stats(cache: &State<Arc<Mutex<DiskCache>>>) -> String {
     format!("Cache Stats: {:?}", stats)
 }
 
+
 #[post("/size/<new_size>")]
 async fn set_cache_size(new_size: u64, cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
     DiskCache::set_max_size(cache.inner().clone(), new_size).await;
     "Cache size updated"
 }
-
+*/
 #[launch]
 fn rocket() -> _ {
     let _ = setup_logger();
     let _ = std::fs::create_dir_all("/data/cache");
-    let cache_manager = DiskCache::new(
+    let cache_manager = Arc::new(ConcurrentDiskCache::new(
         PathBuf::from("/data/cache/"),
-        3,
+        6,
         vec!["redis://0.0.0.0:6379"],
-    ); // [TODO] make the args configurable from env
+    ));// [TODO] make the args configurable from env
     rocket::build().manage(cache_manager).mount(
         "/",
         routes![
             health_check,
             get_file,
+            /* 
             cache_stats,
             set_cache_size,
             scale_out,
             yield_keyslots,
             migrate_keyslots_to,
             import_keyslots
+            */
         ],
     )
 }
