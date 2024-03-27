@@ -39,6 +39,7 @@ impl PartialEq for RedisKeyslot {
 pub struct NodeInfo {
     pub node_id: String,
     pub endpoint: String,
+    pub port: u16,
 }
 
 pub struct RedisServer {
@@ -49,7 +50,7 @@ pub struct RedisServer {
 }
 
 impl RedisServer {
-    pub fn new(addrs: Vec<&str>) -> Result<Self, redis::RedisError> {
+    pub fn new(addrs: Vec<String>) -> Result<Self, redis::RedisError> {
         let client = redis::cluster::ClusterClient::new(addrs)?;
         let server = RedisServer {
             client,
@@ -101,9 +102,12 @@ impl RedisServer {
         // self.myid cannot be determined at the instantiation moment because the cluster is formed
         // via an external script running redis-cli command. This is a workaround to keep cluster
         // id inside the struct.
+        let redis_port = std::env::var("REDIS_PORT").unwrap_or(String::from("6379")).parse::<u16>().unwrap();
         if self.myid.len() == 0 {
             let result = std::process::Command::new("redis-cli")
                 .arg("-c")
+                .arg("-p")
+                .arg(redis_port.to_string())
                 .arg("cluster")
                 .arg("myid")
                 .output()
@@ -125,6 +129,7 @@ impl RedisServer {
                     // Initialize variables to hold id and endpoint
                     let mut node_id = String::new();
                     let mut endpoint = String::new();
+                    let mut port : u16 = 0;
     
                     // Iterate through the node_info array
                     let mut iter = node_info.iter();
@@ -139,10 +144,16 @@ impl RedisServer {
                                         debug!("Node ID: {}", node_id);
                                     }
                                 }
-                                "endpoint" => {
+                                "ip" => {
                                     if let Some(redis::Value::Data(value)) = iter.next() {
                                         endpoint = String::from_utf8(value.clone()).expect("Invalid UTF-8 for endpoint");
                                         debug!("Endpoint: {}", endpoint);
+                                    }
+                                }
+                                "port" => {
+                                    if let Some(redis::Value::Int(x)) = iter.next() {
+                                        port = *x as u16;
+                                        debug!("Port: {}", port);
                                     }
                                 }
                                 _ => {
@@ -157,7 +168,7 @@ impl RedisServer {
                         for slots in slot_ranges.chunks(2) {
                             if let [redis::Value::Int(start), redis::Value::Int(end)] = slots {
                                 for slot in *start..=*end {
-                                    let info = NodeInfo { node_id: node_id.clone(), endpoint: endpoint.clone() };
+                                    let info = NodeInfo { node_id: node_id.clone(), endpoint: endpoint.clone(), port: port.clone() };
                                     new_mapping.insert(slot as KeyslotId, info);
                                 }
                             }
@@ -177,7 +188,7 @@ impl RedisServer {
         Ok(())
     } 
     // Location lookup function that uses the updated mapping
-    pub async fn location_lookup(& self, uid: FileUid) -> Option<String> {
+    pub async fn location_lookup(& self, uid: FileUid) -> Option<(String, u16)> {
         let slot = self.which_slot(uid).await;
         debug!("Looking up location for slot: {}", slot);
         
@@ -186,8 +197,8 @@ impl RedisServer {
                 debug!("Slot {} is local to this node", slot);
                 None // If the slot is local, we do not need to redirect.
             } else {
-                debug!("Redirecting slot {} to node ID {} at {}", slot, node_info.node_id, node_info.endpoint);
-                Some(node_info.endpoint.clone())
+                debug!("Redirecting slot {} to node ID {} at {}:{}", slot, node_info.node_id, node_info.endpoint, node_info.port);
+                Some((node_info.endpoint.clone(), node_info.port.clone()))
             }
         }).flatten()
     }

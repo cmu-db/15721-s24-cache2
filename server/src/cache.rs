@@ -10,18 +10,21 @@ use std::fs;
 use log::{debug, info, error};
 use tokio::sync::{Mutex, RwLock, RwLockReadGuard};
 use rocket::{fs::NamedFile, response::Redirect};
+use std::net::IpAddr;
+use url::Url;
 
 use crate::redis::RedisServer;
 use crate::util::hash;
 
 // Constants
 const SHARD_COUNT: u64 = 3;
-
+pub const PORT_OFFSET_TO_WEB_SERVER: u16 = 20000;
 // Cache Structures -----------------------------------------------------------
 
 pub struct ConcurrentDiskCache {
     cache_dir: PathBuf,
     max_size: u64,
+    s3_endpoint: String,
     shards: Vec<Arc<Mutex<DiskCache>>>,
     pub redis: Arc<RwLock<RedisServer>>,
 }
@@ -30,18 +33,20 @@ pub struct DiskCache {
     cache_dir: PathBuf,
     max_size: u64,
     current_size: u64,
+    s3_endpoint: String,
     access_order: VecDeque<String>,
 }
 
 // DiskCache Implementation ---------------------------------------------------
 
 impl DiskCache {
-    pub fn new(cache_dir: PathBuf, max_size: u64) -> Arc<Mutex<Self>> {
+    pub fn new(cache_dir: PathBuf, max_size: u64, s3_endpoint: String) -> Arc<Mutex<Self>> {
         let current_size = 0; // Start with an empty cache for simplicity
         Arc::new(Mutex::new(Self {
             cache_dir,
             max_size,
             current_size,
+            s3_endpoint,
             access_order: VecDeque::new(),
         }))
     }
@@ -51,8 +56,18 @@ impl DiskCache {
         let file_name: PathBuf;
         let mut cache = cache.lock().await;
         let redirect = redis_read.location_lookup(uid_str.clone()).await;
-        if let Some(x) = redirect {
-            return Err(Redirect::to(format!("http://{}:8000/s3/{}", x, &uid_str)));
+        if let Some((x, p)) = redirect {
+            let mut url = Url::parse("http://localhost").unwrap();
+            let address: IpAddr = x.parse().unwrap();
+            if address.is_loopback() {
+                url.set_host(Some("localhost")).unwrap();
+            } else {
+                url.set_ip_host(address).unwrap();
+            }
+            url.set_port(Some(p + PORT_OFFSET_TO_WEB_SERVER)).unwrap();
+            url.set_path(&format!("s3/{}", &uid_str)[..]);
+            debug!("tell client to redirect to {}", url.to_string());
+            return Err(Redirect::to(url.to_string()));
         }
         if let Some(redis_res) = redis_read.get_file(uid_str.clone()).await {
             debug!("{} found in cache", &uid_str);
@@ -83,8 +98,7 @@ impl DiskCache {
 
     async fn get_s3_file_to_cache(&mut self, s3_file_name: &str, redis_read: &RwLockReadGuard<'_, RedisServer> ) -> IoResult<PathBuf> {
         // Load from "S3", simulate adding to cache
-        let s3_endpoint = "http://mocks3";
-        let s3_file_path = Path::new(s3_endpoint).join(s3_file_name);
+        let s3_file_path = Path::new(&self.s3_endpoint).join(s3_file_name);
         let resp = reqwest::get(s3_file_path.into_os_string().into_string().unwrap())
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -144,17 +158,19 @@ impl DiskCache {
 // ConcurrentDiskCache Implementation -----------------------------------------
 
 impl ConcurrentDiskCache {
-    pub fn new(cache_dir: PathBuf, max_size: u64, redis_addrs: Vec<&str>) -> Self {
+    pub fn new(cache_dir: PathBuf, max_size: u64, s3_endpoint: String, redis_addrs: Vec<String>) -> Self {
+        let _ = std::fs::create_dir_all(cache_dir.clone());
         let shard_max_size = max_size / SHARD_COUNT as u64;
         let redis_server = RedisServer::new(redis_addrs).unwrap();
         let redis = Arc::new(RwLock::new(redis_server));
         let shards = (0..SHARD_COUNT).map(|_| {
-            DiskCache::new(cache_dir.clone(), shard_max_size)
+            DiskCache::new(cache_dir.clone(), shard_max_size, s3_endpoint.clone())
         }).collect::<Vec<_>>();
         
         Self {
             cache_dir,
             max_size,
+            s3_endpoint,
             shards,
             redis,
         }
