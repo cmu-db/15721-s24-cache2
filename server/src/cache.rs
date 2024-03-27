@@ -4,8 +4,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::io::{ErrorKind, Result as IoResult, Write};
 use std::path::Path;
+use chrono::{self, Utc};
+use tokio::time::{timeout, Duration};
 use std::fs;
-use log::{debug, info};
+use log::{debug, info, error};
 use tokio::sync::{Mutex, RwLock, RwLockReadGuard};
 use rocket::{fs::NamedFile, response::Redirect};
 
@@ -137,18 +139,6 @@ impl DiskCache {
         self.access_order.retain(|x| x != file_name);
         self.access_order.push_back(file_name.clone());
     }
-
-    pub async fn get_stats(cache: Arc<Mutex<Self>>) -> HashMap<String, u64> {
-        let cache = cache.lock().await;
-        let mut stats = HashMap::new();
-        stats.insert("current_size".to_string(), cache.current_size);
-        stats.insert("max_size".to_string(), cache.max_size);
-        stats.insert(
-            "cache_entries".to_string(),
-            0, // [TODO] get cache entries from redis
-        );
-        stats
-    }
 }
 
 // ConcurrentDiskCache Implementation -----------------------------------------
@@ -198,22 +188,39 @@ impl ConcurrentDiskCache {
         );
         let result = DiskCache::get_file(shard.clone(), uid.into(), &redis_read).await;
         drop(redis_read);
-        self.print_cache_state().await;
+        debug!("{}", self.get_stats().await);
         result
     }
 
-    pub async fn print_cache_state(&self) {
-        debug!("Current cache state:");
+    pub async fn get_stats(&self) -> String {
+        let current_time = chrono::Utc::now();
+        let mut stats_summary = format!("Cache Stats at {}\n", current_time.to_rfc3339());
+        stats_summary.push_str(&format!("{:<15} | {:<12} | {:<12} | {:<10} | {}\n", "Shard", "Curr Size", "% Used", "Total Files", "Files"));
+        stats_summary.push_str(&"-".repeat(80));
+        stats_summary.push('\n');
+
         for (index, shard) in self.shards.iter().enumerate() {
-            let shard_guard = shard.lock().await; // Lock each shard to access its state safely
-            let files_in_shard: Vec<_> = shard_guard.access_order.iter().collect();
-            debug!(
-                "Hash Slot/Shard {}: Current Size = {}, Files = {:?}",
-                index,
-                shard_guard.current_size,
-                files_in_shard
-            );
+            match tokio::time::timeout(std::time::Duration::from_secs(5), shard.lock()).await {
+                Ok(shard_guard) => {
+                    let files_in_shard: Vec<_> = shard_guard.access_order.iter().collect();
+                    let total_files = files_in_shard.len();
+                    let used_capacity_pct = (shard_guard.current_size as f64 / shard_guard.max_size as f64) * 100.0;
+                    stats_summary.push_str(&format!(
+                        "{:<15} | {:<12} | {:<12.2} | {:<10} | {:?}\n",
+                        format!("Shard {}", index),
+                        shard_guard.current_size,
+                        used_capacity_pct,
+                        total_files,
+                        files_in_shard
+                    ));
+                }
+                Err(_) => {
+                    stats_summary.push_str(&format!("Timeout while trying to lock shard {}\n", index));
+                }
+            }
         }
+
+        stats_summary
     }
     /* 
     pub async fn set_max_size(cache: Arc<Mutex<Self>>, new_size: u64) {

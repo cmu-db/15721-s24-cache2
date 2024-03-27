@@ -34,6 +34,11 @@ fn health_check() -> &'static str {
     "Healthy\n"
 }
 
+#[get("/stats")]
+async fn cache_stats(cache: &State<Arc<ConcurrentDiskCache>>) -> String {
+    cache.get_stats().await
+}
+
 #[get("/s3/<uid..>")]
 async fn get_file(
     uid: PathBuf,
@@ -93,13 +98,6 @@ async fn migrate_keyslots_to(
         .await;
 }
 
-#[get("/stats")]
-async fn cache_stats(cache: &State<Arc<Mutex<DiskCache>>>) -> String {
-    let stats = DiskCache::get_stats(cache.inner().clone()).await;
-    format!("Cache Stats: {:?}", stats)
-}
-
-
 #[post("/size/<new_size>")]
 async fn set_cache_size(new_size: u64, cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
     DiskCache::set_max_size(cache.inner().clone(), new_size).await;
@@ -120,8 +118,8 @@ fn rocket() -> _ {
         routes![
             health_check,
             get_file,
-            /* 
             cache_stats,
+            /*
             set_cache_size,
             scale_out,
             yield_keyslots,
