@@ -4,18 +4,13 @@ extern crate fern;
 #[macro_use]
 extern crate log;
 
-use rocket::fs::NamedFile;
-use rocket::response::Redirect;
-use rocket::serde::json::Json;
-use rocket::State;
+use rocket::{fs::NamedFile, response::Redirect, serde::json::Json, State};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-mod cache;
-use cache::DiskCache;
-use cache::ConcurrentDiskCache;
-use cache::KeyslotId;
+use istziio_server_node::cache::ConcurrentDiskCache;
+use istziio_server_node::util::KeyslotId;
 
 fn setup_logger() -> Result<(), fern::InitError> {
     fern::Dispatch::new()
