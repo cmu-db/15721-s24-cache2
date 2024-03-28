@@ -20,3 +20,4 @@ Cargo.lock
 client/parquet_files/
 
 bench_files
+.vscode

@@ -1,11 +1,11 @@
 // In src/kv_store.rs
 
-use tokio::net::TcpStream;
-use tokio::io::{self, AsyncWriteExt, BufReader};
-use tokio::io::AsyncBufReadExt;
-use std::sync::Mutex;
 use anyhow::Result;
 use log::info;
+use std::sync::Mutex;
+use tokio::io::AsyncBufReadExt;
+use tokio::io::{self, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
 pub struct KVStore {
     address: String,
     port: u16,
@@ -43,7 +43,7 @@ impl KVStore {
         if let Some(stream) = conn.as_mut() {
             stream.write_all(message.as_bytes()).await?;
             stream.flush().await?;
-    
+
             // Use a loop to read lines from the server.
             let mut response = String::new();
             let mut reader = BufReader::new(stream);

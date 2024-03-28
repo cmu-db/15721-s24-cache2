@@ -1,52 +1,142 @@
-// In src/main.rs
+#[macro_use]
+extern crate rocket;
+extern crate fern;
+#[macro_use]
+extern crate log;
 
+use rocket::{fs::NamedFile, response::Redirect, serde::json::Json, State};
+use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::{io, net::TcpListener};
-use log::{error, info, LevelFilter};
-use env_logger::Builder;
-use clap::{App, Arg};
+use tokio::sync::Mutex;
 
-mod client_connection;
-mod db;
+use istziio_server_node::cache::{self, ConcurrentDiskCache};
+use istziio_server_node::util::KeyslotId;
 
-use client_connection::ClientConnection;
-use db::Database;
+fn setup_logger() -> Result<(), fern::InitError> {
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{}][{}] {}",
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        .level(log::LevelFilter::Debug)
+        .chain(std::io::stdout())
+        .chain(fern::log_file("output.log")?)
+        .apply()?;
+    Ok(())
+}
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
-    let matches = App::new("KVStore Server")
-        .arg(Arg::new("port")
-            .long("port")
-            .takes_value(true)
-            .default_value("7878")
-            .help("Sets the server port"))
-        .arg(Arg::new("address")
-            .long("address")
-            .takes_value(true)
-            .default_value("127.0.0.1")
-            .help("Sets the IP address"))
-        .get_matches();
+#[get("/")]
+fn health_check() -> &'static str {
+    "Healthy\n"
+}
 
-    let port = matches.value_of("port").unwrap().parse::<u16>().expect("Invalid port number");
-    let address = matches.value_of("address").unwrap();
+#[get("/stats")]
+async fn cache_stats(cache: &State<Arc<ConcurrentDiskCache>>) -> String {
+    cache.get_stats().await
+}
 
-    Builder::new().filter_level(LevelFilter::Info).init();
+#[get("/s3/<uid..>")]
+async fn get_file(
+    uid: PathBuf,
+    cache: &State<Arc<ConcurrentDiskCache>>,
+) -> Result<NamedFile, Redirect> {
+    cache.inner().get_file(uid).await
+}
 
-    let db = Arc::new(Database::new());
-    let listener = TcpListener::bind(format!("{}:{}", address, port)).await?;
-
-    info!("Server running on {}:{}", address, port);
-
-    loop {
-        let (socket, _) = listener.accept().await?;
-        let db_clone: Arc<Database> = db.clone();
-        tokio::spawn(async move {
-            let mut client = ClientConnection::new(socket, db_clone);
-            if let Err(e) = client.handle_client().await {
-                error!("Failed to handle client: {}", e);
-            }
-        });
-    }
+/*
+#[get("/scale-out")]
+async fn scale_out(cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
+    DiskCache::scale_out(cache.inner().clone()).await;
+    "success"
 }
 
 
+#[get("/keyslots/yield/<p>")]
+async fn yield_keyslots(
+    p: f64,
+    cache_guard: &State<Arc<Mutex<DiskCache>>>,
+) -> Json<Vec<KeyslotId>> {
+    let cache_mutex = cache_guard.inner().clone();
+    let mut cache = cache_mutex.lock().await;
+    let keyslots = cache.redis.yield_keyslots(p).await;
+    Json(keyslots)
+}
+
+#[post(
+    "/keyslots/import",
+    format = "application/json",
+    data = "<keyslots_json>"
+)]
+async fn import_keyslots(
+    keyslots_json: Json<Vec<KeyslotId>>,
+    cache_guard: &State<Arc<Mutex<DiskCache>>>,
+) {
+    let cache_mutex = cache_guard.inner().clone();
+    let mut cache = cache_mutex.lock().await;
+    cache.redis.import_keyslot(keyslots_json.into_inner()).await;
+}
+
+#[post(
+    "/keyslots/migrate_to/<node_id>",
+    format = "application/json",
+    data = "<keyslots_json>"
+)]
+async fn migrate_keyslots_to(
+    keyslots_json: Json<Vec<KeyslotId>>,
+    node_id: String,
+    cache_guard: &State<Arc<Mutex<DiskCache>>>,
+) {
+    let cache_mutex = cache_guard.inner().clone();
+    let cache = cache_mutex.lock().await;
+    cache
+        .redis
+        .migrate_keyslot_to(keyslots_json.into_inner(), node_id)
+        .await;
+}
+
+#[post("/size/<new_size>")]
+async fn set_cache_size(new_size: u64, cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
+    DiskCache::set_max_size(cache.inner().clone(), new_size).await;
+    "Cache size updated"
+}
+*/
+#[launch]
+fn rocket() -> _ {
+    let _ = setup_logger();
+    let _ = std::fs::create_dir_all("/data/cache");
+    let redis_port = std::env::var("REDIS_PORT")
+        .unwrap_or(String::from("6379"))
+        .parse::<u16>()
+        .unwrap();
+    let rocket_port = cache::PORT_OFFSET_TO_WEB_SERVER + redis_port;
+    let cache_dir = std::env::var("CACHE_DIR").unwrap_or(format!("./cache_{}", rocket_port));
+    let s3_endpoint = std::env::var("S3_ENDPOINT").unwrap_or(String::from("http://0.0.0.0:6333"));
+    let cache_manager = Arc::new(ConcurrentDiskCache::new(
+        PathBuf::from(cache_dir),
+        6,
+        s3_endpoint,
+        vec![format!("redis://0.0.0.0:{}", redis_port)],
+    )); // [TODO] make the args configurable from env
+    rocket::build()
+        .configure(rocket::Config::figment().merge(("port", rocket_port)))
+        .manage(cache_manager)
+        .mount(
+            "/",
+            routes![
+                health_check,
+                get_file,
+                cache_stats,
+                /*
+                set_cache_size,
+                scale_out,
+                yield_keyslots,
+                migrate_keyslots_to,
+                import_keyslots
+                */
+            ],
+        )
+}
