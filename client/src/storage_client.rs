@@ -19,7 +19,7 @@ use crate::client_api;
 pub struct StorageClientImpl {
     id: usize,
     table_file_map: HashMap<TableId, String>,
-    cache_url: String,
+    server_url: String,
 }
 impl StorageClientImpl {
     /// Create a StorageClient instance
@@ -27,7 +27,7 @@ impl StorageClientImpl {
         Self {
             id,
             table_file_map: HashMap::new(),
-            cache_url: "http://localhost:8000".to_string(),
+            server_url: "http://localhost:26380".to_string(),
         }
     }
 
@@ -35,14 +35,17 @@ impl StorageClientImpl {
         Self {
             id,
             table_file_map: map,
-            cache_url: "http://localhost:8000".to_string(),
+            server_url: "http://localhost:26380".to_string(),
         }
     }
 
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
     pub async fn read_entire_table(&self, table: TableId) -> Result<Receiver<RecordBatch>> {
+        let mut local_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
         let file_path = self.get_path(table)?;
-        if !Path::new(&file_path).exists() {
+        local_path.push_str(&file_path);
+
+        if !Path::new(&local_path).exists() {
             self.fetch_file(&file_path).await?;
         }
         let (sender, receiver) = channel::<RecordBatch>(1000);
@@ -56,18 +59,16 @@ impl StorageClientImpl {
         Ok(receiver)
     }
 
-    pub fn read_entire_table_sync(&self, table: TableId) -> Result<Vec<RecordBatch>> {
+    pub async fn read_entire_table_sync(&self, table: TableId) -> Result<Vec<RecordBatch>> {
+        let mut local_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
         let file_path = self.get_path(table)?;
-        if !Path::new(&file_path).exists() {
-            let rt = runtime::Runtime::new()?; // Create a new runtime
-            let fetch_result = rt.block_on(async { self.fetch_file(&file_path).await });
+        local_path.push_str(&file_path);
+
+        if !Path::new(&local_path).exists() {
+            self.fetch_file(&file_path).await;
             // Check the result of the fetch operation
-            if let Err(e) = fetch_result {
-                // You can return the error here
-                return Err(e);
-            }
         }
-        Self::read_all_sync(&file_path)
+        Self::read_all_sync(&file_path).await
     }
 
     pub async fn entire_columns(
@@ -116,7 +117,8 @@ impl StorageClientImpl {
             return anyhow::Error::msg("File path is empty");
         })?;
 
-        let url = format!("{}/s3/{}", self.cache_url, file_name);
+        let url = format!("{}/s3/{}", self.server_url, file_name);
+        println!("Sending request: {}", url);
 
         // Send a GET request and await the response
         let response = reqwest::get(url).await?;
@@ -125,7 +127,11 @@ impl StorageClientImpl {
         let file_contents = response.bytes().await?;
         // println!("File contents: {}", file_contents);
         // Write the file to the local file_path
+        let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+
+        file_path.push_str(file_name);
         let mut file = File::create(file_path)?;
+
         file.write_all(&file_contents)?;
 
         Ok(())
@@ -133,7 +139,10 @@ impl StorageClientImpl {
 
     async fn read_all(file_path: &String, sender: Sender<RecordBatch>) -> Result<()> {
         // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
-        let file = File::open(file_path)?;
+        let mut local_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+
+        local_path.push_str(&file_path);
+        let file = File::open(local_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
         while let Some(Ok(rb)) = reader.next() {
@@ -142,9 +151,12 @@ impl StorageClientImpl {
         Ok(())
     }
 
-    fn read_all_sync(file_path: &String) -> Result<Vec<RecordBatch>> {
+    async fn read_all_sync(file_path: &String) -> Result<Vec<RecordBatch>> {
         // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
-        let file = File::open(file_path)?;
+        let mut local_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+
+        local_path.push_str(&file_path);
+        let file = File::open(local_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
         let mut result: Vec<RecordBatch> = Vec::new();
@@ -171,7 +183,7 @@ impl StorageClient for StorageClientImpl {
 
     async fn request_data_sync(&self, _request: StorageRequest) -> Result<Vec<RecordBatch>> {
         match _request {
-            StorageRequest::Table(table_id) => self.read_entire_table_sync(table_id),
+            StorageRequest::Table(table_id) => self.read_entire_table_sync(table_id).await,
             StorageRequest::Columns(table_id, column_ids) => {
                 todo!()
             }
@@ -259,7 +271,7 @@ mod tests {
         let file_name: &str = "sample.parquet";
         let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
         file_path.push_str(file_name);
-        table_file_map.insert(0, file_path);
+        table_file_map.insert(0, file_name.to_string());
 
         // Create a sample parquet file
 
@@ -276,7 +288,7 @@ mod tests {
         let file_name: &str = "sample.parquet";
         let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
         file_path.push_str(file_name);
-        table_file_map.insert(0, file_path);
+        table_file_map.insert(0, file_name.to_string());
 
         StorageClientImpl::new_for_test(1, table_file_map)
     }
@@ -295,28 +307,30 @@ mod tests {
             let record_batch = res.unwrap();
             let sample_rb = create_sample_rb();
             assert_eq!(record_batch, sample_rb);
-            println!("RecordBatch: {:?}", record_batch);
-            println!("SampleRecordBatch: {:?}", sample_rb);
+            // println!("RecordBatch: {:?}", record_batch);
+            // println!("SampleRecordBatch: {:?}", sample_rb);
         });
     }
 
     #[test]
     fn test_entire_table_local_sync() {
         let (client, _file_name) = setup_local();
-        // let rt = Runtime::new().unwrap();
-        let res = client.read_entire_table_sync(0);
-        assert!(res.is_ok());
-        let record_batch = res.unwrap();
-        let rb = record_batch.get(0);
-        assert!(rb.is_some());
-        let sample_rb = create_sample_rb();
-        assert_eq!(rb.unwrap().clone(), sample_rb);
-        println!("RecordBatch: {:?}", rb);
-        println!("SampleRecordBatch: {:?}", sample_rb);
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let res = client.read_entire_table_sync(0).await;
+            assert!(res.is_ok());
+            let record_batch = res.unwrap();
+            let rb = record_batch.get(0);
+            assert!(rb.is_some());
+            let sample_rb = create_sample_rb();
+            assert_eq!(rb.unwrap().clone(), sample_rb);
+            // println!("RecordBatch: {:?}", record_batch);
+            // println!("SampleRecordBatch: {:?}", sample_rb);
+        });
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn test_entire_table_remote() {
         let client = setup_remote();
         let rt = Runtime::new().unwrap();
@@ -331,8 +345,8 @@ mod tests {
             let record_batch = res.unwrap();
             let sample_rb = create_sample_rb();
             assert_eq!(record_batch, sample_rb);
-            println!("RecordBatch: {:?}", record_batch);
-            println!("SampleRecordBatch: {:?}", sample_rb);
+            // println!("RecordBatch: {:?}", record_batch);
+            // println!("SampleRecordBatch: {:?}", sample_rb);
         });
     }
 
@@ -350,13 +364,13 @@ mod tests {
             let record_batch = res.unwrap();
             let sample_rb = create_sample_rb();
             assert_eq!(record_batch, sample_rb);
-            println!("RecordBatch: {:?}", record_batch);
-            println!("SampleRecordBatch: {:?}", sample_rb);
+            // println!("RecordBatch: {:?}", record_batch);
+            // println!("SampleRecordBatch: {:?}", sample_rb);
         });
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn test_request_data_table_remote() {
         let client = setup_remote();
         let rt = Runtime::new().unwrap();
@@ -370,8 +384,8 @@ mod tests {
             let record_batch = res.unwrap();
             let sample_rb: RecordBatch = create_sample_rb();
             assert_eq!(record_batch, sample_rb);
-            println!("RecordBatch: {:?}", record_batch);
-            println!("SampleRecordBatch: {:?}", sample_rb);
+            // println!("RecordBatch: {:?}", record_batch);
+            // println!("SampleRecordBatch: {:?}", sample_rb);
         });
     }
 
@@ -387,8 +401,8 @@ mod tests {
             assert!(rb.is_some());
             let sample_rb = create_sample_rb();
             assert_eq!(rb.unwrap().clone(), sample_rb);
-            println!("RecordBatch: {:?}", record_batch);
-            println!("SampleRecordBatch: {:?}", sample_rb);
+            // println!("RecordBatch: {:?}", record_batch);
+            // println!("SampleRecordBatch: {:?}", sample_rb);
         });
     }
 }

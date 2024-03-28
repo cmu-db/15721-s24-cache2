@@ -9,29 +9,33 @@ use std::time::Instant;
 // then builds a map of TableId -> filename to init storage client(only when catalog is not available)
 // and also generates workload based on table ids. Finally it runs the workload
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Call the helper function to create the map
     let map = create_table_file_map("/home/scott/15721-s24-cache2/bench_files").unwrap();
     let client = setup_client(map.clone());
     let table_ids: Vec<TableId> = map.keys().cloned().collect();
     let load = load_gen_allonce(table_ids);
-    load_run(client, load);
+    load_run(client, load).await;
 }
 
-fn load_run(client: StorageClientImpl, requests: Vec<StorageRequest>) {
+async fn load_run(client: StorageClientImpl, requests: Vec<StorageRequest>) {
     // record start time
     println!("Start running workload");
-    let start = Instant::now();
+    // let start = Instant::now();
     for req in requests {
         let id = match req {
             StorageRequest::Table(id) => id,
             _ => panic!("Invalid request type"),
         };
         println!("Requesting data for table {:?}", id);
-        let _ = client.request_data_sync(req);
+
+        let res = client.request_data_sync(req).await;
+        assert!(res.is_ok());
+        println!("Received data for table {:?}", id)
     }
-    let duration = start.elapsed();
-    println!("Time used: {:?}", duration);
+    // let duration = start.elapsed();
+    // println!("Time used: {:?}", duration);
 }
 
 // Generate a load of requests for all tables at once
