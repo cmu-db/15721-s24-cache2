@@ -6,7 +6,7 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use reqwest::Error;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 use tokio::runtime; // Make sure to include tokio in your Cargo.toml
@@ -26,7 +26,10 @@ impl StorageClientImpl {
     /// Create a StorageClient instance
     pub fn new(id: usize) -> Self {
         let home = std::env::var("HOME").unwrap();
-        let cache = format!("{}/15721-s24-cache2/client/parquet_files", home);
+        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", home);
+        if !Path::new(&cache).exists() {
+            fs::create_dir_all(&cache).unwrap();
+        }
         Self {
             id,
             table_file_map: HashMap::new(),
@@ -37,7 +40,10 @@ impl StorageClientImpl {
 
     pub fn new_for_test(id: usize, map: HashMap<TableId, String>) -> Self {
         let home = std::env::var("HOME").unwrap();
-        let cache = format!("{}/15721-s24-cache2/client/parquet_files", home);
+        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", home);
+        if !Path::new(&cache).exists() {
+            fs::create_dir_all(&cache).unwrap();
+        }
         Self {
             id,
             table_file_map: map,
@@ -48,7 +54,7 @@ impl StorageClientImpl {
 
     pub fn local_cache_path() -> String {
         let home = std::env::var("HOME").unwrap();
-        let cache = format!("{}/15721-s24-cache2/client/parquet_files", home);
+        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", home);
         cache
     }
 
