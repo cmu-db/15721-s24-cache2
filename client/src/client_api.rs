@@ -1,6 +1,3 @@
-
-
-
 use anyhow::Result;
 use arrow::record_batch::RecordBatch;
 use tokio::sync::mpsc::Receiver;
