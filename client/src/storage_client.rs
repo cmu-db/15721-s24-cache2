@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn test_entire_table_remote() {
         let client = setup_remote();
         let rt = Runtime::new().unwrap();
@@ -390,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn test_request_data_table_remote() {
         let client = setup_remote();
         let rt = Runtime::new().unwrap();
