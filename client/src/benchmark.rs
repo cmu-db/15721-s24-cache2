@@ -12,7 +12,9 @@ use std::time::Instant;
 #[tokio::main]
 async fn main() {
     // Call the helper function to create the map
-    let map = create_table_file_map("/home/scott/15721-s24-cache2/bench_files").unwrap();
+    let home = std::env::var("HOME").unwrap();
+    let bench_files_path = format!("{}/15721-s24-cache2/bench_files", home);
+    let map = create_table_file_map(&bench_files_path).unwrap();
     let client = setup_client(map.clone());
     let table_ids: Vec<TableId> = map.keys().cloned().collect();
     let load = load_gen_allonce(table_ids);
@@ -22,7 +24,7 @@ async fn main() {
 async fn load_run(client: StorageClientImpl, requests: Vec<StorageRequest>) {
     // record start time
     println!("Start running workload");
-    // let start = Instant::now();
+    let start = Instant::now();
     for req in requests {
         let id = match req {
             StorageRequest::Table(id) => id,
@@ -34,8 +36,8 @@ async fn load_run(client: StorageClientImpl, requests: Vec<StorageRequest>) {
         assert!(res.is_ok());
         println!("Received data for table {:?}", id)
     }
-    // let duration = start.elapsed();
-    // println!("Time used: {:?}", duration);
+    let duration = start.elapsed();
+    println!("Time used: {:?}", duration);
 }
 
 // Generate a load of requests for all tables at once
