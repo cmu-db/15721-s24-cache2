@@ -47,7 +47,7 @@ async fn get_file(
     cache.inner().get_file(uid).await
 }
 
-/* 
+/*
 #[get("/scale-out")]
 async fn scale_out(cache: &State<Arc<Mutex<DiskCache>>>) -> &'static str {
     DiskCache::scale_out(cache.inner().clone()).await;
@@ -108,7 +108,10 @@ async fn set_cache_size(new_size: u64, cache: &State<Arc<Mutex<DiskCache>>>) -> 
 fn rocket() -> _ {
     let _ = setup_logger();
     let _ = std::fs::create_dir_all("/data/cache");
-    let redis_port = std::env::var("REDIS_PORT").unwrap_or(String::from("6379")).parse::<u16>().unwrap();
+    let redis_port = std::env::var("REDIS_PORT")
+        .unwrap_or(String::from("6379"))
+        .parse::<u16>()
+        .unwrap();
     let rocket_port = cache::PORT_OFFSET_TO_WEB_SERVER + redis_port;
     let cache_dir = std::env::var("CACHE_DIR").unwrap_or(format!("./cache_{}", rocket_port));
     let s3_endpoint = std::env::var("S3_ENDPOINT").unwrap_or(String::from("http://0.0.0.0:6333"));
@@ -117,22 +120,23 @@ fn rocket() -> _ {
         6,
         s3_endpoint,
         vec![format!("redis://0.0.0.0:{}", redis_port)],
-    ));// [TODO] make the args configurable from env
+    )); // [TODO] make the args configurable from env
     rocket::build()
         .configure(rocket::Config::figment().merge(("port", rocket_port)))
-        .manage(cache_manager).mount(
-        "/",
-        routes![
-            health_check,
-            get_file,
-            cache_stats,
-            /*
-            set_cache_size,
-            scale_out,
-            yield_keyslots,
-            migrate_keyslots_to,
-            import_keyslots
-            */
-        ],
-    )
+        .manage(cache_manager)
+        .mount(
+            "/",
+            routes![
+                health_check,
+                get_file,
+                cache_stats,
+                /*
+                set_cache_size,
+                scale_out,
+                yield_keyslots,
+                migrate_keyslots_to,
+                import_keyslots
+                */
+            ],
+        )
 }

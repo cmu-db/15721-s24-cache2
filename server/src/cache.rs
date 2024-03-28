@@ -1,16 +1,16 @@
 // cache.rs
+use chrono::{self, Utc};
+use log::{debug, error, info};
+use rocket::{fs::NamedFile, response::Redirect};
 use std::collections::{HashMap, VecDeque};
+use std::fs;
+use std::io::{ErrorKind, Result as IoResult, Write};
+use std::net::IpAddr;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::io::{ErrorKind, Result as IoResult, Write};
-use std::path::Path;
-use chrono::{self, Utc};
-use tokio::time::{timeout, Duration};
-use std::fs;
-use log::{debug, info, error};
 use tokio::sync::{Mutex, RwLock, RwLockReadGuard};
-use rocket::{fs::NamedFile, response::Redirect};
-use std::net::IpAddr;
+use tokio::time::{timeout, Duration};
 use url::Url;
 
 use crate::redis::RedisServer;
@@ -51,7 +51,11 @@ impl DiskCache {
         }))
     }
 
-    pub async fn get_file(cache: Arc<Mutex<Self>>, uid: PathBuf, redis_read: &RwLockReadGuard<'_, RedisServer>) -> Result<NamedFile, Redirect> {
+    pub async fn get_file(
+        cache: Arc<Mutex<Self>>,
+        uid: PathBuf,
+        redis_read: &RwLockReadGuard<'_, RedisServer>,
+    ) -> Result<NamedFile, Redirect> {
         let uid_str = uid.into_os_string().into_string().unwrap();
         let file_name: PathBuf;
         let mut cache = cache.lock().await;
@@ -96,7 +100,11 @@ impl DiskCache {
             .map_err(|_| Redirect::to("/not_found_on_this_disk"));
     }
 
-    async fn get_s3_file_to_cache(&mut self, s3_file_name: &str, redis_read: &RwLockReadGuard<'_, RedisServer> ) -> IoResult<PathBuf> {
+    async fn get_s3_file_to_cache(
+        &mut self,
+        s3_file_name: &str,
+        redis_read: &RwLockReadGuard<'_, RedisServer>,
+    ) -> IoResult<PathBuf> {
         // Load from "S3", simulate adding to cache
         let s3_file_path = Path::new(&self.s3_endpoint).join(s3_file_name);
         let resp = reqwest::get(s3_file_path.into_os_string().into_string().unwrap())
@@ -105,12 +113,21 @@ impl DiskCache {
 
         // Check if the file was not found in S3
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(std::io::Error::new(ErrorKind::NotFound, "File not found in S3"));
+            return Err(std::io::Error::new(
+                ErrorKind::NotFound,
+                "File not found in S3",
+            ));
         }
 
         // Ensure the response status is successful, otherwise return an error
         if !resp.status().is_success() {
-            return Err(std::io::Error::new(ErrorKind::Other, format!("Failed to fetch file from S3 with status: {}", resp.status())));
+            return Err(std::io::Error::new(
+                ErrorKind::Other,
+                format!(
+                    "Failed to fetch file from S3 with status: {}",
+                    resp.status()
+                ),
+            ));
         }
         let file = resp.bytes().await.unwrap(); // [TODO] error handling
         self.ensure_capacity(redis_read).await;
@@ -121,7 +138,7 @@ impl DiskCache {
         return Ok(Path::new("").join(s3_file_name));
     }
 
-    async fn ensure_capacity(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer> ) {
+    async fn ensure_capacity(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer>) {
         // Trigger eviction if the cache is full or over its capacity
         while self.current_size >= self.max_size && !self.access_order.is_empty() {
             if let Some(evicted_file_name) = self.access_order.pop_front() {
@@ -158,15 +175,20 @@ impl DiskCache {
 // ConcurrentDiskCache Implementation -----------------------------------------
 
 impl ConcurrentDiskCache {
-    pub fn new(cache_dir: PathBuf, max_size: u64, s3_endpoint: String, redis_addrs: Vec<String>) -> Self {
+    pub fn new(
+        cache_dir: PathBuf,
+        max_size: u64,
+        s3_endpoint: String,
+        redis_addrs: Vec<String>,
+    ) -> Self {
         let _ = std::fs::create_dir_all(cache_dir.clone());
         let shard_max_size = max_size / SHARD_COUNT as u64;
         let redis_server = RedisServer::new(redis_addrs).unwrap();
         let redis = Arc::new(RwLock::new(redis_server));
-        let shards = (0..SHARD_COUNT).map(|_| {
-            DiskCache::new(cache_dir.clone(), shard_max_size, s3_endpoint.clone())
-        }).collect::<Vec<_>>();
-        
+        let shards = (0..SHARD_COUNT)
+            .map(|_| DiskCache::new(cache_dir.clone(), shard_max_size, s3_endpoint.clone()))
+            .collect::<Vec<_>>();
+
         Self {
             cache_dir,
             max_size,
@@ -181,7 +203,7 @@ impl ConcurrentDiskCache {
         let redis_read = self.redis.read().await; // Acquiring a read lock
         if !redis_read.mapping_initialized {
             drop(redis_read); // Drop read lock before acquiring write lock
-            
+
             let mut redis_write = self.redis.write().await; // Acquiring a write lock
             if let Err(e) = redis_write.update_slot_to_node_mapping().await {
                 eprintln!("Error updating slot-to-node mapping: {:?}", e);
@@ -198,10 +220,7 @@ impl ConcurrentDiskCache {
         let shard_index = hash(&uid) % self.shards.len(); // Hash UID to select a shard
         let shard = &self.shards[shard_index];
         // Debug message showing shard selection
-        debug!(
-            "Selected shard index: {} for uid: {}",
-            shard_index, &uid
-        );
+        debug!("Selected shard index: {} for uid: {}", shard_index, &uid);
         let result = DiskCache::get_file(shard.clone(), uid.into(), &redis_read).await;
         drop(redis_read);
         debug!("{}", self.get_stats().await);
@@ -211,7 +230,10 @@ impl ConcurrentDiskCache {
     pub async fn get_stats(&self) -> String {
         let current_time = chrono::Utc::now();
         let mut stats_summary = format!("Cache Stats at {}\n", current_time.to_rfc3339());
-        stats_summary.push_str(&format!("{:<15} | {:<12} | {:<12} | {:<10} | {}\n", "Shard", "Curr Size", "% Used", "Total Files", "Files"));
+        stats_summary.push_str(&format!(
+            "{:<15} | {:<12} | {:<12} | {:<10} | {}\n",
+            "Shard", "Curr Size", "% Used", "Total Files", "Files"
+        ));
         stats_summary.push_str(&"-".repeat(80));
         stats_summary.push('\n');
 
@@ -220,7 +242,8 @@ impl ConcurrentDiskCache {
                 Ok(shard_guard) => {
                     let files_in_shard: Vec<_> = shard_guard.access_order.iter().collect();
                     let total_files = files_in_shard.len();
-                    let used_capacity_pct = (shard_guard.current_size as f64 / shard_guard.max_size as f64) * 100.0;
+                    let used_capacity_pct =
+                        (shard_guard.current_size as f64 / shard_guard.max_size as f64) * 100.0;
                     stats_summary.push_str(&format!(
                         "{:<15} | {:<12} | {:<12.2} | {:<10} | {:?}\n",
                         format!("Shard {}", index),
@@ -231,14 +254,15 @@ impl ConcurrentDiskCache {
                     ));
                 }
                 Err(_) => {
-                    stats_summary.push_str(&format!("Timeout while trying to lock shard {}\n", index));
+                    stats_summary
+                        .push_str(&format!("Timeout while trying to lock shard {}\n", index));
                 }
             }
         }
 
         stats_summary
     }
-    /* 
+    /*
     pub async fn set_max_size(cache: Arc<Mutex<Self>>, new_size: u64) {
         let mut cache = cache.lock().await;
         cache.max_size = new_size;
