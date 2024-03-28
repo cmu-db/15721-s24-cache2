@@ -1,8 +1,8 @@
 // In src/main.rs
 
-use tokio::io::{self, AsyncBufReadExt, BufReader};
 use clap::{App, Arg};
 use std::sync::Arc;
+use tokio::io::{self, AsyncBufReadExt, BufReader};
 
 mod kv_store;
 use kv_store::KVStore;
@@ -13,11 +13,13 @@ async fn main() -> io::Result<()> {
         .version("1.0")
         .author("Author Name")
         .about("Talks to a KVStore server")
-        .arg(Arg::new("server")
-             .short('s')
-             .long("server")
-             .takes_value(true)
-             .help("Server address (IP:Port)"))
+        .arg(
+            Arg::new("server")
+                .short('s')
+                .long("server")
+                .takes_value(true)
+                .help("Server address (IP:Port)"),
+        )
         .get_matches();
 
     let server = matches.value_of("server").unwrap_or("127.0.0.1:7878");

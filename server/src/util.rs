@@ -1,7 +1,7 @@
 // util.rs
 use std::{
-    hash::{Hash, Hasher},
     collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
 };
 
 pub type FileUid = String;

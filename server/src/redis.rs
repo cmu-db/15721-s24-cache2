@@ -1,7 +1,11 @@
 //redis.rs
-use std::{cmp::Reverse, collections::{BinaryHeap, HashMap}, path::PathBuf};
-use redis::Commands;
 use log::debug;
+use redis::Commands;
+use std::{
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap},
+    path::PathBuf,
+};
 
 use crate::util::{FileUid, KeyslotId};
 
@@ -102,7 +106,10 @@ impl RedisServer {
         // self.myid cannot be determined at the instantiation moment because the cluster is formed
         // via an external script running redis-cli command. This is a workaround to keep cluster
         // id inside the struct.
-        let redis_port = std::env::var("REDIS_PORT").unwrap_or(String::from("6379")).parse::<u16>().unwrap();
+        let redis_port = std::env::var("REDIS_PORT")
+            .unwrap_or(String::from("6379"))
+            .parse::<u16>()
+            .unwrap();
         if self.myid.len() == 0 {
             let result = std::process::Command::new("redis-cli")
                 .arg("-c")
@@ -120,17 +127,22 @@ impl RedisServer {
     // Function to update the slot-to-node mapping
     pub async fn update_slot_to_node_mapping(&mut self) -> Result<(), ()> {
         let mut conn = self.client.get_connection().unwrap();
-        let shards = redis::cmd("CLUSTER").arg("SHARDS").query::<Vec<Vec<redis::Value>>>(&mut conn).unwrap();
+        let shards = redis::cmd("CLUSTER")
+            .arg("SHARDS")
+            .query::<Vec<Vec<redis::Value>>>(&mut conn)
+            .unwrap();
         let mut new_mapping: HashMap<KeyslotId, NodeInfo> = HashMap::new();
-    
+
         for shard_info in shards {
-            if let [_, redis::Value::Bulk(slot_ranges), _, redis::Value::Bulk(nodes_info)] = &shard_info[..] {
+            if let [_, redis::Value::Bulk(slot_ranges), _, redis::Value::Bulk(nodes_info)] =
+                &shard_info[..]
+            {
                 if let Some(redis::Value::Bulk(node_info)) = nodes_info.first() {
                     // Initialize variables to hold id and endpoint
                     let mut node_id = String::new();
                     let mut endpoint = String::new();
-                    let mut port : u16 = 0;
-    
+                    let mut port: u16 = 0;
+
                     // Iterate through the node_info array
                     let mut iter = node_info.iter();
                     while let Some(redis::Value::Data(key)) = iter.next() {
@@ -140,13 +152,15 @@ impl RedisServer {
                             match key_str {
                                 "id" => {
                                     if let Some(redis::Value::Data(value)) = iter.next() {
-                                        node_id = String::from_utf8(value.clone()).expect("Invalid UTF-8 for node_id");
+                                        node_id = String::from_utf8(value.clone())
+                                            .expect("Invalid UTF-8 for node_id");
                                         debug!("Node ID: {}", node_id);
                                     }
                                 }
                                 "ip" => {
                                     if let Some(redis::Value::Data(value)) = iter.next() {
-                                        endpoint = String::from_utf8(value.clone()).expect("Invalid UTF-8 for endpoint");
+                                        endpoint = String::from_utf8(value.clone())
+                                            .expect("Invalid UTF-8 for endpoint");
                                         debug!("Endpoint: {}", endpoint);
                                     }
                                 }
@@ -162,13 +176,17 @@ impl RedisServer {
                             }
                         }
                     }
-    
+
                     // Check if we have both id and endpoint
                     if !node_id.is_empty() && !endpoint.is_empty() {
                         for slots in slot_ranges.chunks(2) {
                             if let [redis::Value::Int(start), redis::Value::Int(end)] = slots {
                                 for slot in *start..=*end {
-                                    let info = NodeInfo { node_id: node_id.clone(), endpoint: endpoint.clone(), port: port.clone() };
+                                    let info = NodeInfo {
+                                        node_id: node_id.clone(),
+                                        endpoint: endpoint.clone(),
+                                        port: port.clone(),
+                                    };
                                     new_mapping.insert(slot as KeyslotId, info);
                                 }
                             }
@@ -177,30 +195,39 @@ impl RedisServer {
                 }
             }
         }
-    
+
         if new_mapping.is_empty() {
             debug!("No slots were found for any nodes. The mapping might be incorrect.");
             return Err(());
         }
-    
+
         self.slot_to_node_mapping = new_mapping;
-        debug!("Updated slot-to-node mapping: {:?}", self.slot_to_node_mapping);
+        debug!(
+            "Updated slot-to-node mapping: {:?}",
+            self.slot_to_node_mapping
+        );
         Ok(())
-    } 
+    }
     // Location lookup function that uses the updated mapping
-    pub async fn location_lookup(& self, uid: FileUid) -> Option<(String, u16)> {
+    pub async fn location_lookup(&self, uid: FileUid) -> Option<(String, u16)> {
         let slot = self.which_slot(uid).await;
         debug!("Looking up location for slot: {}", slot);
-        
-        self.slot_to_node_mapping.get(&slot).map(|node_info| {
-            if node_info.node_id == self.myid {
-                debug!("Slot {} is local to this node", slot);
-                None // If the slot is local, we do not need to redirect.
-            } else {
-                debug!("Redirecting slot {} to node ID {} at {}:{}", slot, node_info.node_id, node_info.endpoint, node_info.port);
-                Some((node_info.endpoint.clone(), node_info.port.clone()))
-            }
-        }).flatten()
+
+        self.slot_to_node_mapping
+            .get(&slot)
+            .map(|node_info| {
+                if node_info.node_id == self.myid {
+                    debug!("Slot {} is local to this node", slot);
+                    None // If the slot is local, we do not need to redirect.
+                } else {
+                    debug!(
+                        "Redirecting slot {} to node ID {} at {}:{}",
+                        slot, node_info.node_id, node_info.endpoint, node_info.port
+                    );
+                    Some((node_info.endpoint.clone(), node_info.port.clone()))
+                }
+            })
+            .flatten()
     }
     pub async fn get_file(&self, uid: FileUid) -> Option<PathBuf> {
         let mut conn = self.client.get_connection().unwrap();
