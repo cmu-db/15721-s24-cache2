@@ -20,28 +20,41 @@ pub struct StorageClientImpl {
     id: usize,
     table_file_map: HashMap<TableId, String>,
     server_url: String,
+    local_cache: String,
 }
 impl StorageClientImpl {
     /// Create a StorageClient instance
     pub fn new(id: usize) -> Self {
+        let home = std::env::var("HOME").unwrap();
+        let cache = format!("{}/15721-s24-cache2/client/parquet_files", home);
         Self {
             id,
             table_file_map: HashMap::new(),
             server_url: "http://localhost:26380".to_string(),
+            local_cache: cache,
         }
     }
 
     pub fn new_for_test(id: usize, map: HashMap<TableId, String>) -> Self {
+        let home = std::env::var("HOME").unwrap();
+        let cache = format!("{}/15721-s24-cache2/client/parquet_files", home);
         Self {
             id,
             table_file_map: map,
             server_url: "http://localhost:26380".to_string(),
+            local_cache: cache,
         }
+    }
+
+    pub fn local_cache_path() -> String {
+        let home = std::env::var("HOME").unwrap();
+        let cache = format!("{}/15721-s24-cache2/client/parquet_files", home);
+        cache
     }
 
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
     pub async fn read_entire_table(&self, table: TableId) -> Result<Receiver<RecordBatch>> {
-        let mut local_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+        let mut local_path = self.local_cache.clone();
         let file_path = self.get_path(table)?;
         local_path.push_str(&file_path);
 
@@ -60,7 +73,7 @@ impl StorageClientImpl {
     }
 
     pub async fn read_entire_table_sync(&self, table: TableId) -> Result<Vec<RecordBatch>> {
-        let mut local_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+        let mut local_path = self.local_cache.clone();
         let file_path = self.get_path(table)?;
         local_path.push_str(&file_path);
 
@@ -127,7 +140,7 @@ impl StorageClientImpl {
         let file_contents = response.bytes().await?;
         // println!("File contents: {}", file_contents);
         // Write the file to the local file_path
-        let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+        let mut file_path = self.local_cache.clone();
 
         file_path.push_str(file_name);
         let mut file = File::create(file_path)?;
@@ -139,7 +152,7 @@ impl StorageClientImpl {
 
     async fn read_all(file_path: &String, sender: Sender<RecordBatch>) -> Result<()> {
         // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
-        let mut local_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+        let mut local_path = StorageClientImpl::local_cache_path();
 
         local_path.push_str(&file_path);
         let file = File::open(local_path)?;
@@ -153,7 +166,7 @@ impl StorageClientImpl {
 
     async fn read_all_sync(file_path: &String) -> Result<Vec<RecordBatch>> {
         // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
-        let mut local_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+        let mut local_path = StorageClientImpl::local_cache_path();
 
         local_path.push_str(&file_path);
         let file = File::open(local_path)?;
@@ -225,7 +238,7 @@ mod tests {
     }
 
     fn create_sample_parquet_file(file_name: &str) -> anyhow::Result<()> {
-        let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+        let mut file_path = StorageClientImpl::local_cache_path();
 
         file_path.push_str(file_name);
         let path = Path::new(&file_path);
@@ -269,7 +282,8 @@ mod tests {
     fn setup_local() -> (StorageClientImpl, String) {
         let mut table_file_map: HashMap<TableId, String> = HashMap::new();
         let file_name: &str = "sample.parquet";
-        let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+        let mut file_path = StorageClientImpl::local_cache_path();
+
         file_path.push_str(file_name);
         table_file_map.insert(0, file_name.to_string());
 
@@ -286,7 +300,7 @@ mod tests {
     fn setup_remote() -> StorageClientImpl {
         let mut table_file_map: HashMap<TableId, String> = HashMap::new();
         let file_name: &str = "sample.parquet";
-        let mut file_path = std::env::var("CLIENT_FILES_DIR").unwrap().to_owned();
+        let mut file_path = StorageClientImpl::local_cache_path();
         file_path.push_str(file_name);
         table_file_map.insert(0, file_name.to_string());
 

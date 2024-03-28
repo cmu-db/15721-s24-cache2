@@ -25,7 +25,7 @@ cd client
 # This build and run client/src/benchmark.rs, check the code for details
 cargo build --bin benchmark
 
-export CLIENT_PARQUET_DIR=$HOME/15721-s24-cache2/client/parquet_files/
+export CLIENT_FILES_DIR=$HOME/15721-s24-cache2/client/parquet_files/
 
 RUST_BACKTRACE=1 cargo run --package client --bin benchmark
 
