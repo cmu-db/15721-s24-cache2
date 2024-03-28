@@ -16,50 +16,28 @@ jobs:
       run:
         shell: bash
         working-directory: ./server
-    services:
-      mocks3:
-        image: nginx
-        ports:
-          - 6333:80
-        volumes:
-          - ${{ github.workspace }}/data:/usr/share/nginx/html
-        options: --name mocks3
     runs-on: ubuntu-latest
+    env:
+      TEST_ROOT: ${{ github.workspace }}/server/tests
+      SERVER_ROOT: ${{ github.workspace }}/server
     steps:
     - uses: actions/checkout@v4
     - name: Setup BATS testing framework
       uses: mig4/setup-bats@v1.2.0
-    - name: Move mock S3 data
-      run: cp -r tests/test_s3_files/. ${{ github.workspace }}/data
-    - name: setup-redis-1
+    - name: Run mock S3 server
+      run: docker run -p 6333:80 -v ${{ github.workspace }}/server/tests/test_s3_files:/usr/share/nginx/html -d nginx
+    - name: setup-redis
       uses: shogo82148/actions-setup-redis@v1
       with:
-        redis-port: 6379
-        redis-conf: |
-          cluster-enabled yes
-          cluster-config-file nodes-1.conf
-          cluster-node-timeout 5000
-          appendonly yes
-    - name: setup-redis-2
-      uses: shogo82148/actions-setup-redis@v1
-      with:
-        redis-port: 6380
-        redis-conf: |
-          cluster-enabled yes
-          cluster-config-file nodes-2.conf
-          cluster-node-timeout 5000
-          appendonly yes
-    - name: setup-redis-3
-      uses: shogo82148/actions-setup-redis@v1
-      with:
-        redis-port: 6381
-        redis-conf: |
-          cluster-enabled yes
-          cluster-config-file nodes-3.conf
-          cluster-node-timeout 5000
-          appendonly yes
+        auto-start: false
+    - name: start redis nodes
+      run: redis-server ${{ github.workspace }}/server/redis.conf --port 6379 --cluster-config-file node1.conf&
+    - name: start redis nodes
+      run: redis-server ${{ github.workspace }}/server/redis.conf --port 6380 --cluster-config-file node2.conf&
+    - name: start redis nodes
+      run: redis-server ${{ github.workspace }}/server/redis.conf --port 6381 --cluster-config-file node3.conf&
     - name: Create redis cluster
-      run: redis-cli --cluster create localhost:6379 localhost:6380 localhost:6381 --cluster-replicas 0
+      run: redis-cli --cluster create localhost:6379 localhost:6380 localhost:6381 --cluster-replicas 0 --cluster-yes
     - name: Build
       run: cargo build --verbose
     - name: Run 
@@ -68,4 +46,4 @@ jobs:
         REDIS_PORT=6380 cargo run &
         REDIS_PORT=6381 cargo run &
     - name: Test get file
-      run: bats ${{ github.workspace }}/tests/server-integration.bats
+      run: bats ${{ github.workspace }}/server/tests/server-integration.bats
