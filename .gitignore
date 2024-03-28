@@ -18,3 +18,5 @@ Cargo.lock
 
 # local parquet file location for client
 client/parquet_files/
+
+bench_files

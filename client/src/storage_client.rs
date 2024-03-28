@@ -1,7 +1,7 @@
 use anyhow::Result;
 use arrow::array::{AnyDictionaryArray, RecordBatch};
 
-use client::client_api::{ColumnId, StorageClient, StorageRequest, TableId};
+use client_api::{ColumnId, StorageClient, StorageRequest, TableId};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use reqwest::Error;
 use std::collections::HashMap;
@@ -12,6 +12,8 @@ use std::path::Path;
 use tokio::runtime; // Make sure to include tokio in your Cargo.toml
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task;
+
+use crate::client_api;
 
 /// Clien for fetching data from I/O service
 pub struct StorageClientImpl {
@@ -314,6 +316,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_entire_table_remote() {
         let client = setup_remote();
         let rt = Runtime::new().unwrap();
@@ -353,6 +356,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_request_data_table_remote() {
         let client = setup_remote();
         let rt = Runtime::new().unwrap();

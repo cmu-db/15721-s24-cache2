@@ -1,12 +1,11 @@
 // In src/main.rs
 
 use clap::{App, Arg};
+use client::kv_store;
 use std::sync::Arc;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 
-mod kv_store;
 use kv_store::KVStore;
-mod storage_client;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
