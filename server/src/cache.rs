@@ -14,6 +14,7 @@ use tokio::time::{timeout, Duration};
 use url::Url;
 
 use crate::redis::RedisServer;
+use crate::storage::storage_connector::StorageConnector;
 use crate::util::hash;
 
 // Constants
@@ -51,13 +52,14 @@ impl DiskCache {
         }))
     }
 
-    pub async fn get_file(
+    pub async fn get_file<T: StorageConnector>(
         cache: Arc<Mutex<Self>>,
         uid: PathBuf,
+        connector: &T,
         redis_read: &RwLockReadGuard<'_, RedisServer>,
     ) -> Result<NamedFile, Redirect> {
         let uid_str = uid.into_os_string().into_string().unwrap();
-        let file_name: PathBuf;
+        let mut file_name: PathBuf = Path::new("").to_path_buf();
         let mut cache = cache.lock().await;
         let redirect = redis_read.location_lookup(uid_str.clone()).await;
         if let Some((x, p)) = redirect {
@@ -77,17 +79,21 @@ impl DiskCache {
             debug!("{} found in cache", &uid_str);
             file_name = redis_res;
         } else {
-            match cache.get_s3_file_to_cache(&uid_str, &redis_read).await {
-                Ok(cache_file_name) => {
+            match cache.get_s3_file_to_cache(&uid_str, connector, &redis_read).await {
+                Ok(local_file_name) => {
                     debug!("{} fetched from S3", &uid_str);
-                    file_name = cache_file_name;
+                    file_name = local_file_name;
+                    cache.ensure_capacity(redis_read).await;
+                    let file_size = 1; // Assume each file has size 1 for simplicity
+                    cache.current_size += file_size;
+                    cache.access_order.push_back(uid_str.clone());
                     let _ = redis_read
                         .set_file_cache_loc(uid_str.clone(), file_name.clone())
                         .await;
                 }
                 Err(e) => {
                     info!("{}", e.to_string());
-                    return Err(Redirect::to("/not_found_on_this_disk"));
+                    return Err(Redirect::to("/not_found_on_S3"));
                 }
             }
         }
@@ -100,42 +106,13 @@ impl DiskCache {
             .map_err(|_| Redirect::to("/not_found_on_this_disk"));
     }
 
-    async fn get_s3_file_to_cache(
+    async fn get_s3_file_to_cache<T: StorageConnector>(
         &mut self,
         s3_file_name: &str,
+        connector: &T,
         redis_read: &RwLockReadGuard<'_, RedisServer>,
     ) -> IoResult<PathBuf> {
-        // Load from "S3", simulate adding to cache
-        let s3_file_path = Path::new(&self.s3_endpoint).join(s3_file_name);
-        let resp = reqwest::get(s3_file_path.into_os_string().into_string().unwrap())
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
-        // Check if the file was not found in S3
-        if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(std::io::Error::new(
-                ErrorKind::NotFound,
-                "File not found in S3",
-            ));
-        }
-
-        // Ensure the response status is successful, otherwise return an error
-        if !resp.status().is_success() {
-            return Err(std::io::Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Failed to fetch file from S3 with status: {}",
-                    resp.status()
-                ),
-            ));
-        }
-        let file = resp.bytes().await.unwrap(); // [TODO] error handling
-        self.ensure_capacity(redis_read).await;
-        fs::File::create(Path::new(&self.cache_dir).join(s3_file_name))?.write_all(&file[..])?;
-        let file_size = 1; // Assume each file has size 1 for simplicity
-        self.current_size += file_size;
-        self.access_order.push_back(String::from(s3_file_name));
-        return Ok(Path::new("").join(s3_file_name));
+        connector.fetch_and_cache_file(s3_file_name, &self.cache_dir).await
     }
 
     async fn ensure_capacity(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer>) {
@@ -197,7 +174,11 @@ impl ConcurrentDiskCache {
             redis,
         }
     }
-    pub async fn get_file(&self, uid: PathBuf) -> Result<NamedFile, Redirect> {
+    pub async fn get_file<T: StorageConnector>(
+        &self,
+        uid: PathBuf,
+        connector: &T,
+    ) -> Result<NamedFile, Redirect> {
         let uid = uid.into_os_string().into_string().unwrap();
         // Use read lock for read operations
         let redis_read = self.redis.read().await; // Acquiring a read lock
@@ -221,7 +202,7 @@ impl ConcurrentDiskCache {
         let shard = &self.shards[shard_index];
         // Debug message showing shard selection
         debug!("Selected shard index: {} for uid: {}", shard_index, &uid);
-        let result = DiskCache::get_file(shard.clone(), uid.into(), &redis_read).await;
+        let result = DiskCache::get_file(shard.clone(), uid.into(), connector, &redis_read).await;
         drop(redis_read);
         debug!("{}", self.get_stats().await);
         result

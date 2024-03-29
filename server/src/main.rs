@@ -4,6 +4,7 @@ extern crate fern;
 #[macro_use]
 extern crate log;
 
+use istziio_server_node::storage::mock_storage_connector::MockS3StorageConnector;
 use rocket::{fs::NamedFile, response::Redirect, serde::json::Json, State};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,8 +44,9 @@ async fn cache_stats(cache: &State<Arc<ConcurrentDiskCache>>) -> String {
 async fn get_file(
     uid: PathBuf,
     cache: &State<Arc<ConcurrentDiskCache>>,
+    s3_connector: &State<MockS3StorageConnector>,
 ) -> Result<NamedFile, Redirect> {
-    cache.inner().get_file(uid).await
+    cache.inner().get_file(uid, s3_connector.inner()).await
 }
 
 /*
@@ -115,6 +117,7 @@ fn rocket() -> _ {
     let rocket_port = cache::PORT_OFFSET_TO_WEB_SERVER + redis_port;
     let cache_dir = std::env::var("CACHE_DIR").unwrap_or(format!("./cache_{}", rocket_port));
     let s3_endpoint = std::env::var("S3_ENDPOINT").unwrap_or(String::from("http://0.0.0.0:6333"));
+    let s3_connector = MockS3StorageConnector::new(s3_endpoint.clone());
     let cache_manager = Arc::new(ConcurrentDiskCache::new(
         PathBuf::from(cache_dir),
         6,
@@ -124,6 +127,7 @@ fn rocket() -> _ {
     rocket::build()
         .configure(rocket::Config::figment().merge(("port", rocket_port)))
         .manage(cache_manager)
+        .manage(s3_connector)
         .mount(
             "/",
             routes![
