@@ -244,10 +244,12 @@ mod tests {
     }
 
     fn create_sample_parquet_file(file_name: &str) -> anyhow::Result<()> {
-        let mut file_path = StorageClientImpl::local_cache_path();
-
-        file_path.push_str(file_name);
-        let path = Path::new(&file_path);
+        let mut cache_path = StorageClientImpl::local_cache_path();
+        if !Path::new(&cache_path).exists() {
+            fs::create_dir_all(&cache_path).unwrap();
+        }
+        cache_path.push_str(file_name);
+        let path = Path::new(&cache_path);
 
         let message_type = "
         message schema {
@@ -256,7 +258,6 @@ mod tests {
         }
         ";
         let schema = Arc::new(parse_message_type(message_type).unwrap());
-        println!("debugging CI, path is {:?}", path);
         let file = fs::File::create(&path).unwrap();
 
         let props: WriterProperties = WriterProperties::builder().build();
