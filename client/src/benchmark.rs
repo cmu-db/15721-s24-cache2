@@ -17,12 +17,13 @@ async fn main() {
     let map = create_table_file_map(&bench_files_path).unwrap();
     let client = setup_client(map.clone());
     let table_ids: Vec<TableId> = map.keys().cloned().collect();
-    let load = load_gen_allonce(table_ids);
-    load_run(client, load).await;
+    let load = load_gen_allonce(table_ids.clone());
+    load_run(&client, load).await;
+    // let skewed_load = load_gen_skewed(table_ids);
+    // load_run(&client, skewed_load).await;
 }
 
-async fn load_run(client: StorageClientImpl, requests: Vec<StorageRequest>) {
-    // record start time
+async fn load_run(client: &StorageClientImpl, requests: Vec<StorageRequest>) {
     println!("Start running workload");
     let start = Instant::now();
     for req in requests {
@@ -34,7 +35,23 @@ async fn load_run(client: StorageClientImpl, requests: Vec<StorageRequest>) {
 
         let res = client.request_data_sync(req).await;
         assert!(res.is_ok());
-        println!("Received data for table {:?}", id)
+        println!("Received data for table {:?}", id);
+
+        // let local_cache_dir = StorageClientImpl::local_cache_path();
+        // // iterate files in local cache and delete them
+        // let entries = fs::read_dir(local_cache_dir).unwrap();
+        // for entry in entries {
+        //     let entry = entry.unwrap();
+        //     let path = entry.path();
+        //     // if file name ends with "parquet"
+        //     if let Some(file_name) = path.file_name() {
+        //         if let Some(name) = file_name.to_str() {
+        //             if name.ends_with("parquet") {
+        //                 fs::remove_file(path).unwrap();
+        //             }
+        //         }
+        //     }
+        // }
     }
     let duration = start.elapsed();
     println!("Time used: {:?}", duration);
@@ -50,7 +67,16 @@ fn load_gen_allonce(table_ids: Vec<TableId>) -> Vec<StorageRequest> {
 }
 
 fn load_gen_skewed(table_ids: Vec<TableId>) -> Vec<StorageRequest> {
-    todo!("Implement the skewed load generator")
+    // read a random table id twice, and a random table id zero times
+    let mut requests = Vec::new();
+    for table_id in &table_ids {
+        requests.push(StorageRequest::Table(table_id.clone()));
+    }
+    // remove last element
+    requests.pop();
+    requests.push(StorageRequest::Table(table_ids[0]));
+
+    requests
 }
 
 fn setup_client(table_file_map: HashMap<TableId, String>) -> StorageClientImpl {

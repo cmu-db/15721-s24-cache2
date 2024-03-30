@@ -84,8 +84,12 @@ impl StorageClientImpl {
         local_path.push_str(&file_path);
 
         if !Path::new(&local_path).exists() {
+            let start = std::time::Instant::now();
             self.fetch_file(&file_path).await;
             // Check the result of the fetch operation
+            // print elapse time
+            let duration = start.elapsed();
+            println!("Time used to fetch file: {:?}", duration);
         }
         Self::read_all_sync(&file_path).await
     }
@@ -139,6 +143,8 @@ impl StorageClientImpl {
         let url = format!("{}/s3/{}", self.server_url, file_name);
         println!("Sending request: {}", url);
 
+        let start = std::time::Instant::now();
+
         // Send a GET request and await the response
         let response = reqwest::get(url).await?;
 
@@ -146,12 +152,33 @@ impl StorageClientImpl {
         let file_contents = response.bytes().await?;
         // println!("File contents: {}", file_contents);
         // Write the file to the local file_path
+
+        // print elapse time
+        let duration = start.elapsed();
+        println!("Time used to wait for response: {:?}", duration);
+
         let mut file_path = self.local_cache.clone();
 
         file_path.push_str(file_name);
         let mut file = File::create(file_path)?;
 
         file.write_all(&file_contents)?;
+
+        // STREAM VERSION CODE!
+
+        // let mut file_path = self.local_cache.clone();
+
+        // file_path.push_str(file_name);
+        // let mut file = File::create(file_path)?;
+
+        // let mut stream = response.bytes_stream();
+        // while let Some(chunk) = stream.next().await {
+        //     let data = chunk?;
+        //     file.write_all(&data)?;
+        // }
+
+        // let duration = start.elapsed();
+        // println!("Time used to receive stream: {:?}", duration);
 
         Ok(())
     }
@@ -173,7 +200,8 @@ impl StorageClientImpl {
     async fn read_all_sync(file_path: &String) -> Result<Vec<RecordBatch>> {
         // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
         let mut local_path = StorageClientImpl::local_cache_path();
-
+        // print curr time
+        let start = std::time::Instant::now();
         local_path.push_str(&file_path);
         let file = File::open(local_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
@@ -182,6 +210,9 @@ impl StorageClientImpl {
         while let Some(Ok(rb)) = reader.next() {
             result.push(rb);
         }
+        // print elapse
+        let duration = start.elapsed();
+        println!("Time used to read from parquet: {:?}", duration);
         Ok(result)
     }
 }
