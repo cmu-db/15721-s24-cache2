@@ -52,10 +52,10 @@ impl DiskCache {
         }))
     }
 
-    pub async fn get_file<T: StorageConnector>(
+    pub async fn get_file(
         cache: Arc<Mutex<Self>>,
         uid: PathBuf,
-        connector: &T,
+        connector: Arc<dyn StorageConnector + Send + Sync>,
         redis_read: &RwLockReadGuard<'_, RedisServer>,
     ) -> Result<NamedFile, Redirect> {
         let uid_str = uid.into_os_string().into_string().unwrap();
@@ -79,7 +79,10 @@ impl DiskCache {
             debug!("{} found in cache", &uid_str);
             file_name = redis_res;
         } else {
-            match cache.get_s3_file_to_cache(&uid_str, connector, &redis_read).await {
+            match cache
+                .get_s3_file_to_cache(&uid_str, connector, &redis_read)
+                .await
+            {
                 Ok(local_file_name) => {
                     debug!("{} fetched from S3", &uid_str);
                     file_name = local_file_name;
@@ -106,13 +109,15 @@ impl DiskCache {
             .map_err(|_| Redirect::to("/not_found_on_this_disk"));
     }
 
-    async fn get_s3_file_to_cache<T: StorageConnector>(
+    async fn get_s3_file_to_cache(
         &mut self,
         s3_file_name: &str,
-        connector: &T,
+        connector: Arc<dyn StorageConnector + Send + Sync>,
         redis_read: &RwLockReadGuard<'_, RedisServer>,
     ) -> IoResult<PathBuf> {
-        connector.fetch_and_cache_file(s3_file_name, &self.cache_dir).await
+        connector
+            .fetch_and_cache_file(s3_file_name, &self.cache_dir)
+            .await
     }
 
     async fn ensure_capacity(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer>) {
@@ -174,10 +179,10 @@ impl ConcurrentDiskCache {
             redis,
         }
     }
-    pub async fn get_file<T: StorageConnector>(
+    pub async fn get_file(
         &self,
         uid: PathBuf,
-        connector: &T,
+        connector: Arc<dyn StorageConnector + Send + Sync>,
     ) -> Result<NamedFile, Redirect> {
         let uid = uid.into_os_string().into_string().unwrap();
         // Use read lock for read operations

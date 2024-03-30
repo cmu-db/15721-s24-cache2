@@ -5,5 +5,9 @@ use std::path::{Path, PathBuf};
 
 #[async_trait]
 pub trait StorageConnector {
-    async fn fetch_and_cache_file(&self, file_name: &str, cache_path: &PathBuf) -> IoResult<PathBuf>;
+    async fn fetch_and_cache_file(
+        &self,
+        file_name: &str,
+        cache_path: &PathBuf,
+    ) -> IoResult<PathBuf>;
 }
