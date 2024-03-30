@@ -152,6 +152,15 @@ impl DiskCache {
         self.access_order.retain(|x| x != file_name);
         self.access_order.push_back(file_name.clone());
     }
+    
+    async fn empty(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer>) {
+        self.current_size = 0;
+        while let Some(x) = self.access_order.pop_front() {
+            let evicted_path = self.cache_dir.join(&x);
+            let _ = fs::remove_file(&evicted_path);
+            let _ = redis_read.remove_file(x).await;
+        }
+    }
 }
 
 // ConcurrentDiskCache Implementation -----------------------------------------
@@ -247,6 +256,13 @@ impl ConcurrentDiskCache {
         }
 
         stats_summary
+    }
+
+    pub async fn empty(&self) {
+        for shard in self.shards.iter() {
+            let redis_read = self.redis.read().await;
+            let _ = shard.lock().await.empty(&redis_read).await;
+        }
     }
     /*
     pub async fn set_max_size(cache: Arc<Mutex<Self>>, new_size: u64) {
