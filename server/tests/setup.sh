@@ -49,15 +49,21 @@ redis-cli --cluster create localhost:6379 localhost:6380 localhost:6381 --cluste
 echo "Redis cluster created."
 
 # Starting the application servers
-REDIS_PORT=6379 cargo run -- \
+REDIS_PORT=6379 cargo run --\
   --bucket "istziio-bucket" \
-  --region "us-east-1" \ > "${LOG_DIR}/app_6379.log" 2>&1 &
-REDIS_PORT=6380 cargo run -- \
+  --region "us-east-1" \
+  --access-key "$AWS_ACCESS_KEY_ID" \
+  --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6379.log" 2>&1 &
+REDIS_PORT=6380 cargo run --\
   --bucket "istziio-bucket" \
-  --region "us-east-1" \ > "${LOG_DIR}/app_6380.log" 2>&1 &
-REDIS_PORT=6381 cargo run -- \
+  --region "us-east-1" \
+  --access-key "$AWS_ACCESS_KEY_ID" \
+  --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6380.log" 2>&1 &
+REDIS_PORT=6381 cargo run --\
   --bucket "istziio-bucket" \
-  --region "us-east-1" \ > "${LOG_DIR}/app_6381.log" 2>&1 &
+  --region "us-east-1" \
+  --access-key "$AWS_ACCESS_KEY_ID" \
+  --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6381.log" 2>&1 &
 
 echo "Application servers starting..."
 
