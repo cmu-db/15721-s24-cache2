@@ -256,6 +256,7 @@ mod tests {
         }
         ";
         let schema = Arc::new(parse_message_type(message_type).unwrap());
+        println!("debugging CI, path is {:?}", path);
         let file = fs::File::create(&path).unwrap();
 
         let props: WriterProperties = WriterProperties::builder().build();
