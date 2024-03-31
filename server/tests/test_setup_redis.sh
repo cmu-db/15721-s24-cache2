@@ -23,7 +23,7 @@ mkdir -p "${LOG_DIR}"
 
 # Server root directory
 SERVER_ROOT="$(cd "$(dirname "${SERVER_ROOT:-"."}")"; pwd)/$(basename "${SERVER_ROOT:-"."}")"
-
+echo "server root set to: $SERVER_ROOT"
 
 # Names or keywords to identify your processes
 PROCESS_NAMES=("istziio_server_node" "redis-serveredis-serverr")
