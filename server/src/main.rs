@@ -97,6 +97,7 @@ async fn main() -> Result<(), rocket::Error>{
                 use_mock_s3_endpoint: None
             }
         };
-    ServerNode::new(config).await?;
+    let server_node = ServerNode::new(config);
+    server_node.build().launch().await?;
     Ok(())
 }

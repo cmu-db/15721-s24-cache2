@@ -102,14 +102,10 @@ impl RedisServer {
             }
         }
     }
-    pub fn get_myid(&mut self) -> &String {
+    pub fn get_myid(&mut self, redis_port: u16) -> &String {
         // self.myid cannot be determined at the instantiation moment because the cluster is formed
         // via an external script running redis-cli command. This is a workaround to keep cluster
         // id inside the struct.
-        let redis_port = std::env::var("REDIS_PORT")
-            .unwrap_or(String::from("6379"))
-            .parse::<u16>()
-            .unwrap();
         if self.myid.len() == 0 {
             let result = std::process::Command::new("redis-cli")
                 .arg("-c")
@@ -344,5 +340,12 @@ impl RedisServer {
         }
         debug!("These are slots to be migrate: {:?}", result);
         result
+    }
+    pub fn flush_all(&self) {
+        let mut conn = self.client.get_connection().unwrap();
+        let _ = redis::cmd("FLUSHALL")
+            .arg("SYNC")
+            .query::<redis::Value>(&mut conn)
+            .unwrap();
     }
 }

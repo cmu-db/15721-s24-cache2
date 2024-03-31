@@ -28,6 +28,7 @@ pub struct ConcurrentDiskCache {
     s3_endpoint: String,
     shards: Vec<Arc<Mutex<DiskCache>>>,
     pub redis: Arc<RwLock<RedisServer>>,
+    redis_port: u16
 }
 
 pub struct DiskCache {
@@ -160,6 +161,7 @@ impl DiskCache {
             let _ = fs::remove_file(&evicted_path);
             let _ = redis_read.remove_file(x).await;
         }
+        redis_read.flush_all();
     }
 }
 
@@ -171,6 +173,7 @@ impl ConcurrentDiskCache {
         max_size: u64,
         s3_endpoint: String,
         redis_addrs: Vec<String>,
+        redis_port: u16
     ) -> Self {
         let _ = std::fs::create_dir_all(cache_dir.clone());
         let shard_max_size = max_size / SHARD_COUNT as u64;
@@ -186,6 +189,7 @@ impl ConcurrentDiskCache {
             s3_endpoint,
             shards,
             redis,
+            redis_port
         }
     }
     pub async fn get_file(
@@ -204,7 +208,7 @@ impl ConcurrentDiskCache {
                 eprintln!("Error updating slot-to-node mapping: {:?}", e);
                 return Err(Redirect::to("/error_updating_mapping"));
             }
-            redis_write.get_myid();
+            redis_write.get_myid(self.redis_port);
             redis_write.mapping_initialized = true;
             drop(redis_write);
             debug!("Initialization complete, dropped Redis write lock");
