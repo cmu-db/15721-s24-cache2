@@ -19,15 +19,14 @@ jobs:
         working-directory: ./server
     runs-on: self-hosted
     continue-on-error: false
-
+    env:
+      SERVER_ROOT: ${{ github.workspace }}/server
     steps:
     - uses: actions/checkout@v3
     - name: Install Toolchain
       run: rustup update stable && rustup default stable && rustup component add rustfmt
     - name: Install cargo-llvm-cov
       uses: taiki-e/install-action@cargo-llvm-cov
-    - name: Run mock S3 server
-      run: docker run -p 6333:80 -v ${{ github.workspace }}/server/tests/test_s3_files:/usr/share/nginx/html -d nginx
     - name: setup-redis
       uses: shogo82148/actions-setup-redis@v1
       with:
