@@ -35,10 +35,12 @@ done
 
 echo "Existing processes killed, if any were running."
 
+rm $SERVER_ROOT/node1.conf $SERVER_ROOT/node2.conf $SERVER_ROOT/node3.conf
+
 # Start Redis instances
-redis-server $SERVER_ROOT/redis.conf --port 6379 --cluster-config-file node1.conf&
-redis-server $SERVER_ROOT/redis.conf --port 6380 --cluster-config-file node2.conf&
-redis-server $SERVER_ROOT/redis.conf --port 6381 --cluster-config-file node3.conf&
+redis-server $SERVER_ROOT/redis.conf --port 6379 --cluster-config-file $SERVER_ROOT/node1.conf&
+redis-server $SERVER_ROOT/redis.conf --port 6380 --cluster-config-file $SERVER_ROOT/node2.conf&
+redis-server $SERVER_ROOT/redis.conf --port 6381 --cluster-config-file $SERVER_ROOT/node3.conf&
 
 echo "Redis servers starting..."
 
