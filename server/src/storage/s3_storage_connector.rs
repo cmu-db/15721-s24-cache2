@@ -1,14 +1,13 @@
 use async_trait::async_trait;
-use aws_sdk_s3::error::ListBucketsError;
-use aws_sdk_s3::SdkError;
 use aws_sdk_s3::{Client, Config, Credentials, Region};
 use log::debug;
 use rocket::futures::StreamExt;
+use std::io;
 use std::io::Result as IoResult;
 use std::path::{Path, PathBuf};
-use std::{error, io};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+
 
 use super::storage_connector::StorageConnector;
 

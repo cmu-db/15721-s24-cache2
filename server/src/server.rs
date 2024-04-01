@@ -77,7 +77,6 @@ impl ServerNode {
         let cache_manager = Arc::new(ConcurrentDiskCache::new(
             PathBuf::from(&config.cache_dir),
             6,                // [TODO] make this configurable
-            String::from(""), // [TODO] remove this redundant thing
             vec![format!("redis://0.0.0.0:{}", config.redis_port)],
             config.redis_port,
         ));
