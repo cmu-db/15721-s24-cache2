@@ -20,10 +20,10 @@ fn setup_logger() -> Result<(), fern::InitError> {
 
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
-    let matches = App::new("My Rocket Application")
+    let matches = App::new("istziio-server-node")
         .version("1.0")
-        .author("Your Name")
-        .about("Description of your application")
+        .author("istziio")
+        .about("A distributed server node to serve as cache to S3")
         .arg(
             Arg::with_name("use_mock_s3")
                 .long("use-mock-s3")
