@@ -1,5 +1,5 @@
-use istziio_server_node::server::{ServerNode, ServerConfig};
 use clap::{App, Arg};
+use istziio_server_node::server::{ServerConfig, ServerNode};
 
 fn setup_logger() -> Result<(), fern::InitError> {
     fern::Dispatch::new()
@@ -19,7 +19,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
 }
 
 #[rocket::main]
-async fn main() -> Result<(), rocket::Error>{
+async fn main() -> Result<(), rocket::Error> {
     let matches = App::new("My Rocket Application")
         .version("1.0")
         .author("Your Name")
@@ -77,26 +77,26 @@ async fn main() -> Result<(), rocket::Error>{
     let access_key = matches.value_of("access_key").unwrap_or_default();
     let secret_key = matches.value_of("secret_key").unwrap_or_default();
     let config = if use_mock_s3 {
-            ServerConfig {
-                redis_port,
-                cache_dir,
-                bucket: Some(String::from(bucket)),
-                region_name: Some(String::from(region_name)),
-                access_key: Some(String::from(access_key)),
-                secret_key: Some(String::from(secret_key)),
-                use_mock_s3_endpoint: Some(String::from(s3_endpoint))
-            }
-        } else {
-            ServerConfig {
-                redis_port,
-                cache_dir,
-                bucket: Some(String::from(bucket)),
-                region_name: Some(String::from(region_name)),
-                access_key: Some(String::from(access_key)),
-                secret_key: Some(String::from(secret_key)),
-                use_mock_s3_endpoint: None
-            }
-        };
+        ServerConfig {
+            redis_port,
+            cache_dir,
+            bucket: Some(String::from(bucket)),
+            region_name: Some(String::from(region_name)),
+            access_key: Some(String::from(access_key)),
+            secret_key: Some(String::from(secret_key)),
+            use_mock_s3_endpoint: Some(String::from(s3_endpoint)),
+        }
+    } else {
+        ServerConfig {
+            redis_port,
+            cache_dir,
+            bucket: Some(String::from(bucket)),
+            region_name: Some(String::from(region_name)),
+            access_key: Some(String::from(access_key)),
+            secret_key: Some(String::from(secret_key)),
+            use_mock_s3_endpoint: None,
+        }
+    };
     let server_node = ServerNode::new(config);
     server_node.build().launch().await?;
     Ok(())

@@ -28,7 +28,7 @@ pub struct ConcurrentDiskCache {
     s3_endpoint: String,
     shards: Vec<Arc<Mutex<DiskCache>>>,
     pub redis: Arc<RwLock<RedisServer>>,
-    redis_port: u16
+    redis_port: u16,
 }
 
 pub struct DiskCache {
@@ -153,7 +153,7 @@ impl DiskCache {
         self.access_order.retain(|x| x != file_name);
         self.access_order.push_back(file_name.clone());
     }
-    
+
     async fn empty(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer>) {
         self.current_size = 0;
         while let Some(x) = self.access_order.pop_front() {
@@ -173,7 +173,7 @@ impl ConcurrentDiskCache {
         max_size: u64,
         s3_endpoint: String,
         redis_addrs: Vec<String>,
-        redis_port: u16
+        redis_port: u16,
     ) -> Self {
         let _ = std::fs::create_dir_all(cache_dir.clone());
         let shard_max_size = max_size / SHARD_COUNT as u64;
@@ -189,7 +189,7 @@ impl ConcurrentDiskCache {
             s3_endpoint,
             shards,
             redis,
-            redis_port
+            redis_port,
         }
     }
     pub async fn get_file(

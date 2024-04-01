@@ -9,7 +9,7 @@ pub fn get_server_config_mocks3(redis_port: u16) -> ServerConfig {
         bucket: None,
         region_name: None,
         access_key: None,
-        secret_key: None
+        secret_key: None,
     }
 }
 
@@ -17,7 +17,7 @@ pub fn launch_server_node_size_3() -> ([ServerNode; 3], [Client; 3]) {
     let config_1 = get_server_config_mocks3(6379);
     let config_2 = get_server_config_mocks3(6380);
     let config_3 = get_server_config_mocks3(6381);
-    
+
     let node_1 = ServerNode::new(config_1);
     let node_2 = ServerNode::new(config_2);
     let node_3 = ServerNode::new(config_3);

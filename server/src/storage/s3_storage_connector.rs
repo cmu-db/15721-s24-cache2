@@ -18,7 +18,12 @@ pub struct S3StorageConnector {
 }
 
 impl S3StorageConnector {
-    pub fn new(bucket: String, region_name: String, access_key: String, secret_key: String) -> Self {
+    pub fn new(
+        bucket: String,
+        region_name: String,
+        access_key: String,
+        secret_key: String,
+    ) -> Self {
         debug!("Creating S3StorageConnector for bucket: {}", bucket);
         let credentials = Credentials::new(access_key, secret_key, None, None, "manual");
         let config = Config::builder()
