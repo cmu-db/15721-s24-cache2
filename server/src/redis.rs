@@ -1,10 +1,7 @@
 //redis.rs
 use log::debug;
 use redis::Commands;
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-};
+use std::{collections::HashMap, path::PathBuf};
 
 use crate::util::{FileUid, KeyslotId};
 
