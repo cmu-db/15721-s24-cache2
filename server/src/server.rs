@@ -3,7 +3,7 @@ extern crate log;
 use crate::storage::mock_storage_connector::MockS3StorageConnector;
 use crate::storage::s3_storage_connector::S3StorageConnector;
 use crate::storage::storage_connector::StorageConnector;
-use rocket::{fs::NamedFile, response::Redirect, State};
+use rocket::State;
 use rocket::{get, post, routes, Rocket};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,7 +25,7 @@ async fn get_file(
     uid: PathBuf,
     cache: &State<Arc<ConcurrentDiskCache>>,
     s3_connector: &State<Arc<dyn StorageConnector + Send + Sync>>,
-) -> Result<NamedFile, Redirect> {
+) -> cache::GetFileResult {
     cache
         .inner()
         .clone()
@@ -76,7 +76,7 @@ impl ServerNode {
 
         let cache_manager = Arc::new(ConcurrentDiskCache::new(
             PathBuf::from(&config.cache_dir),
-            6,                // [TODO] make this configurable
+            6, // [TODO] make this configurable
             vec![format!("redis://0.0.0.0:{}", config.redis_port)],
             config.redis_port,
         ));

@@ -4,7 +4,7 @@ mod utils;
 
 #[test]
 fn test_healthy() {
-    let (_, [client_1, client_2, client_3]) = utils::launch_server_node_size_3();
+    let (_, [client_1, client_2, client_3]) = utils::launch_server_node_size_3(true);
 
     let response = client_1.get("/").dispatch();
     assert_eq!(response.status(), Status::Ok);
@@ -21,7 +21,7 @@ fn test_healthy() {
 
 #[test]
 fn test_clear() {
-    let (_, [client_1, _, _]) = utils::launch_server_node_size_3();
+    let (_, [client_1, _, _]) = utils::launch_server_node_size_3(true);
 
     let _ = client_1.get("/s3/test2.txt").dispatch();
     let response = client_1.get("/stats").dispatch();
@@ -37,7 +37,7 @@ fn test_clear() {
 
 #[test]
 fn test_get_file() {
-    let (_, [client_1, client_2, client_3]) = utils::launch_server_node_size_3();
+    let (_, [client_1, client_2, client_3]) = utils::launch_server_node_size_3(true);
     let response = client_1.get("/s3/test1.txt").dispatch();
     assert_eq!(response.status(), Status::SeeOther);
     let response = client_1.get("/s3/test2.txt").dispatch();
@@ -61,7 +61,7 @@ fn test_get_file() {
 
 #[test]
 fn test_evict() {
-    let (_, [client_1, _, _]) = utils::launch_server_node_size_3();
+    let (_, [client_1, _, _]) = utils::launch_server_node_size_3(true);
 
     let response = client_1.post("/clear").dispatch();
     assert_eq!(response.status(), Status::Ok);
@@ -75,4 +75,20 @@ fn test_evict() {
     let stats = response.into_string().unwrap();
     assert!(!stats.contains("test6"));
     assert!(stats.contains("test8"));
+}
+
+#[test]
+fn test_s3_connector() {
+    let (_, [client_1, _, _]) = utils::launch_server_node_size_3(false);
+    let response = client_1.get("/s3/test2.txt").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    let response = client_1.post("/clear").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+}
+
+#[test]
+fn test_s3_connector_file_not_exist() {
+    let (_, [_, client_2, _]) = utils::launch_server_node_size_3(false);
+    let response = client_2.get("/s3/jhow.sucks").dispatch();
+    assert_eq!(response.status(), Status::NotFound);
 }

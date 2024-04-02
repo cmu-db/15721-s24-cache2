@@ -33,6 +33,18 @@ pub struct DiskCache {
     access_order: VecDeque<String>,
 }
 
+#[derive(rocket::Responder)]
+pub enum GetFileResult {
+    #[response(status = 200)]
+    Hit(NamedFile),
+    #[response(status = 303)]
+    Redirect(Box<Redirect>), // Box this Redirect to avoid [warn] clippy::large_enum_variant
+    #[response(status = 404)]
+    NotFoundOnS3(String),
+    #[response(status = 500)]
+    InitFailed(String),
+}
+
 // DiskCache Implementation ---------------------------------------------------
 
 impl DiskCache {
@@ -51,7 +63,7 @@ impl DiskCache {
         uid: PathBuf,
         connector: Arc<dyn StorageConnector + Send + Sync>,
         redis_read: &RwLockReadGuard<'_, RedisServer>,
-    ) -> Result<NamedFile, Redirect> {
+    ) -> GetFileResult {
         let uid_str = uid.into_os_string().into_string().unwrap();
         let mut cache = cache.lock().await;
         let redirect = redis_read.location_lookup(uid_str.clone()).await;
@@ -66,16 +78,13 @@ impl DiskCache {
             url.set_port(Some(p + PORT_OFFSET_TO_WEB_SERVER)).unwrap();
             url.set_path(&format!("s3/{}", &uid_str)[..]);
             debug!("tell client to redirect to {}", url.to_string());
-            return Err(Redirect::to(url.to_string()));
+            return GetFileResult::Redirect(Box::new(Redirect::to(url.to_string())));
         }
         let file_name = if let Some(redis_res) = redis_read.get_file(uid_str.clone()).await {
             debug!("{} found in cache", &uid_str);
             redis_res
         } else {
-            match cache
-                .get_s3_file_to_cache(&uid_str, connector)
-                .await
-            {
+            match cache.get_s3_file_to_cache(&uid_str, connector).await {
                 Ok(local_file_name) => {
                     debug!("{} fetched from S3", &uid_str);
                     cache.ensure_capacity(redis_read).await;
@@ -89,7 +98,7 @@ impl DiskCache {
                 }
                 Err(e) => {
                     info!("{}", e.to_string());
-                    return Err(Redirect::to("/not_found_on_S3"));
+                    return GetFileResult::NotFoundOnS3(uid_str);
                 }
             }
         };
@@ -97,9 +106,10 @@ impl DiskCache {
         debug!("get_file: {}", file_name_str);
         cache.update_access(&file_name_str);
         let cache_file_path = cache.cache_dir.join(file_name);
-        return NamedFile::open(cache_file_path)
-            .await
-            .map_err(|_| Redirect::to("/not_found_on_this_disk"));
+        match NamedFile::open(cache_file_path).await {
+            Ok(x) => GetFileResult::Hit(x),
+            Err(_) => GetFileResult::NotFoundOnS3(uid_str),
+        }
     }
 
     async fn get_s3_file_to_cache(
@@ -183,7 +193,7 @@ impl ConcurrentDiskCache {
         &self,
         uid: PathBuf,
         connector: Arc<dyn StorageConnector + Send + Sync>,
-    ) -> Result<NamedFile, Redirect> {
+    ) -> GetFileResult {
         let uid = uid.into_os_string().into_string().unwrap();
         // Use read lock for read operations
         let redis_read = self.redis.read().await; // Acquiring a read lock
@@ -192,8 +202,10 @@ impl ConcurrentDiskCache {
 
             let mut redis_write = self.redis.write().await; // Acquiring a write lock
             if let Err(e) = redis_write.update_slot_to_node_mapping().await {
-                eprintln!("Error updating slot-to-node mapping: {:?}", e);
-                return Err(Redirect::to("/error_updating_mapping"));
+                return GetFileResult::InitFailed(format!(
+                    "Error updating slot-to-node mapping: {:?}",
+                    e
+                ));
             }
             redis_write.get_myid(self.redis_port);
             redis_write.mapping_initialized = true;
@@ -207,7 +219,8 @@ impl ConcurrentDiskCache {
         let shard = &self.shards[shard_index];
         // Debug message showing shard selection
         debug!("Selected shard index: {} for uid: {}", shard_index, &uid);
-        let result = DiskCache::get_file(shard.clone(), uid.into(), connector.clone(), &redis_read).await;
+        let result =
+            DiskCache::get_file(shard.clone(), uid.into(), connector.clone(), &redis_read).await;
         drop(redis_read);
         debug!("{}", self.get_stats().await);
         result

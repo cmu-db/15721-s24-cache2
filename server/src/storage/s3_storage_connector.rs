@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-
 use super::storage_connector::StorageConnector;
 
 pub struct S3StorageConnector {
