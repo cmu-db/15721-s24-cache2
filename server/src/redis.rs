@@ -2,42 +2,11 @@
 use log::debug;
 use redis::Commands;
 use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashMap},
+    collections::HashMap,
     path::PathBuf,
 };
 
 use crate::util::{FileUid, KeyslotId};
-
-#[derive(Eq)]
-struct RedisKeyslot {
-    /* This struct is used when the cluster tries to scale out.
-     * During scaling out, keyslots are decided to be migrated to some other nodes, and
-     * the number of key stored in one key slot implies the number of cached files to
-     * be deleted and handover to other nodes. To reduce the lost of cached file due to data
-     * migration in this scenario, we want to find key slots that contains the least key to
-     * handover. */
-    pub id: KeyslotId,
-    pub key_cnt: i64,
-}
-
-impl Ord for RedisKeyslot {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.key_cnt.cmp(&other.key_cnt)
-    }
-}
-
-impl PartialOrd for RedisKeyslot {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for RedisKeyslot {
-    fn eq(&self, other: &Self) -> bool {
-        self.key_cnt == other.key_cnt
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
@@ -250,96 +219,6 @@ impl RedisServer {
             .query::<KeyslotId>(&mut conn)
             .unwrap();
         keyslot
-    }
-    pub async fn import_keyslot(&self, keyslots: Vec<KeyslotId>) {
-        let mut conn = self.client.get_connection().unwrap();
-        for keyslot in keyslots.iter() {
-            let _ = std::process::Command::new("redis-cli") // TODO: error handling
-                .arg("-c")
-                .arg("cluster")
-                .arg("setslot")
-                .arg(keyslot.to_string())
-                .arg("NODE")
-                .arg(&self.myid)
-                .output()
-                .expect("redis command setslot failed to start");
-            if let Ok(_) = redis::cmd("CLUSTER") // TODO: error handling
-                .arg("SETSLOT")
-                .arg(keyslot)
-                .arg("NODE")
-                .arg(&self.myid)
-                .query::<()>(&mut conn)
-            {}
-        }
-    }
-    pub async fn migrate_keyslot_to(&self, keyslots: Vec<KeyslotId>, destination_node_id: String) {
-        let mut conn = self.client.get_connection().unwrap();
-        for keyslot in keyslots.iter() {
-            while let Ok(keys_to_remove) = redis::cmd("CLUSTER")
-                .arg("GETKEYSINSLOT")
-                .arg(keyslot)
-                .arg(10000)
-                .query::<Vec<String>>(&mut conn)
-            {
-                if keys_to_remove.len() == 0 {
-                    break;
-                }
-                let _ = redis::cmd("DEL").arg(keys_to_remove).query::<()>(&mut conn);
-            }
-            let _ = std::process::Command::new("redis-cli") // TODO: error handling
-                .arg("-c")
-                .arg("cluster")
-                .arg("setslot")
-                .arg(keyslot.to_string())
-                .arg("NODE")
-                .arg(destination_node_id.clone())
-                .output()
-                .expect("redis command setslot failed to start");
-        }
-    }
-    pub async fn yield_keyslots(&self, p: f64) -> Vec<KeyslotId> {
-        let mut conn = self.client.get_connection().unwrap();
-        let shards_info = redis::cmd("CLUSTER")
-            .arg("SHARDS")
-            .query::<Vec<Vec<redis::Value>>>(&mut conn)
-            .unwrap();
-        let mut slot_ranges = self.own_slots_from_shards_info(shards_info).await.unwrap();
-        let mut own_slot_cnt = 0;
-        let mut heap = BinaryHeap::new();
-        while let Some([low, high]) = slot_ranges.pop() {
-            own_slot_cnt += (high - low) + 1;
-            for keyslot_id in low..(high + 1) {
-                let key_cnt = redis::cmd("CLUSTER")
-                    .arg("COUNTKEYSINSLOT")
-                    .arg(keyslot_id)
-                    .query::<i64>(&mut conn)
-                    .unwrap();
-                heap.push(Reverse(RedisKeyslot {
-                    id: keyslot_id,
-                    key_cnt: key_cnt,
-                }));
-            }
-        }
-        let migrate_slot_cnt = (own_slot_cnt as f64 * p).floor() as i64;
-        let mut result = Vec::new();
-        let top_slot = &heap.peek().unwrap().0;
-        debug!(
-            "the least loaded key slot: {} ({} keys)",
-            top_slot.id, top_slot.key_cnt
-        );
-        debug!(
-            "{} of the total {} slot of this node is {}",
-            p, own_slot_cnt, migrate_slot_cnt
-        );
-        for _ in 0..migrate_slot_cnt {
-            if let Some(keyslot) = heap.pop() {
-                result.push(keyslot.0.id);
-            } else {
-                break;
-            }
-        }
-        debug!("These are slots to be migrate: {:?}", result);
-        result
     }
     pub fn flush_all(&self) {
         let mut conn = self.client.get_connection().unwrap();
