@@ -30,44 +30,6 @@ impl RedisServer {
         };
         Ok(server)
     }
-    async fn own_slots_from_shards_info(
-        &self,
-        shards_info: Vec<Vec<redis::Value>>,
-    ) -> Result<Vec<[KeyslotId; 2]>, String> {
-        let mut shard_iter = shards_info.iter();
-        let myid = &self.myid;
-        loop {
-            if let Some(shard_info) = shard_iter.next() {
-                if let redis::Value::Bulk(nodes_info) = &shard_info[3] {
-                    if let redis::Value::Bulk(fields) = &nodes_info[0] {
-                        let mut node_id = String::from("");
-                        if let redis::Value::Data(x) = &fields[1] {
-                            node_id = String::from_utf8(x.to_vec()).unwrap();
-                        }
-                        if node_id == *myid {
-                            if let redis::Value::Bulk(slot_range) = &shard_info[1] {
-                                let mut own_slot_ranges = Vec::new();
-                                for i in (0..slot_range.len()).step_by(2) {
-                                    if let (redis::Value::Int(low), redis::Value::Int(high)) =
-                                        (&slot_range[i], &slot_range[i + 1])
-                                    {
-                                        let low_id = *low as KeyslotId;
-                                        let high_id = *high as KeyslotId;
-                                        own_slot_ranges.push([low_id, high_id]);
-                                        debug!("this node has slot {} to {}", low_id, high_id);
-                                    }
-                                }
-                                return Ok(own_slot_ranges);
-                            }
-                        }
-                    }
-                }
-            } else {
-                debug!("This id is not found in the cluster");
-                return Err(String::from("This id is not found in the cluster"));
-            }
-        }
-    }
     pub fn get_myid(&mut self, redis_port: u16) -> &String {
         // self.myid cannot be determined at the instantiation moment because the cluster is formed
         // via an external script running redis-cli command. This is a workaround to keep cluster
