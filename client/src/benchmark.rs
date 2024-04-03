@@ -66,6 +66,9 @@ fn load_gen_allonce(table_ids: Vec<TableId>) -> Vec<StorageRequest> {
     requests
 }
 
+// Generate a load of requests for all tables, but skewed
+// This is not always used
+#[allow(dead_code)]
 fn load_gen_skewed(table_ids: Vec<TableId>) -> Vec<StorageRequest> {
     // read a random table id twice, and a random table id zero times
     let mut requests = Vec::new();

@@ -11,7 +11,7 @@ rm client/parquet_files/*
 mkdir -p bench_files
 
 # This generates benchmark parquet files
-python pqt_gen.py --num-rows 1000000 --num-cols 10 --num-files 5
+python pqt_gen.py --num-rows 1000000 --num-cols 10 --num-files 4
 
 cp bench_files/* server/tests/test_s3_files/
 

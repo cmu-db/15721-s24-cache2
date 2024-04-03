@@ -1,15 +1,12 @@
 use anyhow::Result;
-use arrow::array::{AnyDictionaryArray, RecordBatch};
+use arrow::array::RecordBatch;
 
 use client_api::{ColumnId, StorageClient, StorageRequest, TableId};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use reqwest::Error;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use tokio::runtime; // Make sure to include tokio in your Cargo.toml
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task;
 
@@ -36,6 +33,10 @@ impl StorageClientImpl {
             server_url: "http://localhost:26380".to_string(),
             local_cache: cache,
         }
+    }
+
+    pub fn getid(&self) -> usize {
+        self.id
     }
 
     pub fn new_for_test(id: usize, map: HashMap<TableId, String>) -> Self {
@@ -85,7 +86,7 @@ impl StorageClientImpl {
 
         if !Path::new(&local_path).exists() {
             let start = std::time::Instant::now();
-            self.fetch_file(&file_path).await;
+            let _ = self.fetch_file(&file_path).await;
             // Check the result of the fetch operation
             // print elapse time
             let duration = start.elapsed();
@@ -94,6 +95,7 @@ impl StorageClientImpl {
         Self::read_pqt_all_sync(&file_path).await
     }
 
+    #[allow(unused_variables)]
     pub async fn entire_columns(
         &self,
         table: TableId,
@@ -127,6 +129,8 @@ impl StorageClientImpl {
 
     /// Call catalog service to get url of a table
     /// Don't implement this for now! Assume catalog is not yet available
+    #[allow(dead_code)]
+    #[allow(unused_variables)]
     fn consult_catalog(&self, table: TableId) -> Result<()> {
         todo!()
     }
@@ -222,11 +226,12 @@ impl StorageClient for StorageClientImpl {
     async fn request_data(&self, _request: StorageRequest) -> Result<Receiver<RecordBatch>> {
         match _request {
             StorageRequest::Table(table_id) => self.read_entire_table(table_id).await,
-            StorageRequest::Columns(table_id, column_ids) => {
-                todo!()
+
+            StorageRequest::Columns(_table_id, _column_ids) => {
+                unimplemented!("Column request is not supported yet")
             }
-            StorageRequest::Tuple(record_ids) => {
-                panic!("Tuple request is not supported yet")
+            StorageRequest::Tuple(_record_ids) => {
+                unimplemented!("Tuple request is not supported yet")
             }
         }
     }
@@ -234,11 +239,11 @@ impl StorageClient for StorageClientImpl {
     async fn request_data_sync(&self, _request: StorageRequest) -> Result<Vec<RecordBatch>> {
         match _request {
             StorageRequest::Table(table_id) => self.read_entire_table_sync(table_id).await,
-            StorageRequest::Columns(table_id, column_ids) => {
-                todo!()
+            StorageRequest::Columns(_table_id, _column_ids) => {
+                unimplemented!("Column request is not supported yet")
             }
-            StorageRequest::Tuple(record_ids) => {
-                panic!("Tuple request is not supported yet")
+            StorageRequest::Tuple(_record_ids) => {
+                unimplemented!("Tuple request is not supported yet")
             }
         }
     }
@@ -249,16 +254,13 @@ mod tests {
     use super::*;
     use arrow::array::{Int32Array, StringArray};
     use arrow::datatypes::{DataType, Field, Schema};
-    use arrow::ipc::Utf8;
     use parquet::column::writer::ColumnWriter;
     use parquet::data_type::ByteArray;
     use parquet::file::properties::WriterProperties;
     use parquet::file::writer::SerializedFileWriter;
     use parquet::schema::parser::parse_message_type;
-    use std::path;
     use std::sync::Arc;
     use std::time::Duration;
-    use std::{fs, path::Path};
     use tokio::runtime::Runtime;
     use tokio::time::sleep;
 
