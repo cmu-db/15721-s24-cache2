@@ -23,7 +23,7 @@ async fn main() {
     // load_run(&client, skewed_load).await;
 }
 
-async fn load_run(client: &StorageClientImpl, requests: Vec<StorageRequest>) {
+async fn load_run(client: &dyn StorageClient, requests: Vec<StorageRequest>) {
     println!("Start running workload");
     let start = Instant::now();
     for req in requests {
