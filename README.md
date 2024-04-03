@@ -1,5 +1,6 @@
 # 15721-s24-cache2
 15-721 Spring 2024 - Cache #2
+
 # LRU Cache Server
 
 This server implements a Least Recently Used (LRU) caching mechanism, providing a simple interface for fetching files from a simulated S3 storage and managing them within an LRU cache. The server is built using Rust and the Rocket framework.
@@ -86,3 +87,7 @@ root@node1:/data> curl -L http://node2:8000/s3/test1.txt # make sure -L flag is 
     ```sh
     curl -X POST http://localhost:8000/size/<new-size-in-bytes>
     ```
+
+## Benchmark
+
+To run benchmark, simple run `bench.sh`

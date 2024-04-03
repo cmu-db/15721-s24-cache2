@@ -13,4 +13,11 @@ Cargo.lock
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 
+# vscode foler
+.vscode/
+
+# local parquet file location for client
+client/parquet_files/
+
+bench_files
 .vscode
