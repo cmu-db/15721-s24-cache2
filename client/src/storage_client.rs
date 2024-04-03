@@ -71,7 +71,7 @@ impl StorageClientImpl {
 
         // Spawn a new async task to read the parquet file and send the data
         task::spawn(async move {
-            if let Err(e) = Self::read_all(&file_path, sender).await {
+            if let Err(e) = Self::read_pqt_all(&file_path, sender).await {
                 println!("Error reading parquet file: {:?}", e);
             }
         });
@@ -91,7 +91,7 @@ impl StorageClientImpl {
             let duration = start.elapsed();
             println!("Time used to fetch file: {:?}", duration);
         }
-        Self::read_all_sync(&file_path).await
+        Self::read_pqt_all_sync(&file_path).await
     }
 
     pub async fn entire_columns(
@@ -104,7 +104,7 @@ impl StorageClientImpl {
 
         // Spawn a new async task to read the parquet file and send the data
         task::spawn(async move {
-            if let Err(e) = Self::read_all(&file_path, sender).await {
+            if let Err(e) = Self::read_pqt_all(&file_path, sender).await {
                 println!("Error reading parquet file: {:?}", e);
             }
         });
@@ -183,7 +183,7 @@ impl StorageClientImpl {
         Ok(())
     }
 
-    async fn read_all(file_path: &String, sender: Sender<RecordBatch>) -> Result<()> {
+    async fn read_pqt_all(file_path: &String, sender: Sender<RecordBatch>) -> Result<()> {
         // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
         let mut local_path = StorageClientImpl::local_cache_path();
 
@@ -197,7 +197,7 @@ impl StorageClientImpl {
         Ok(())
     }
 
-    async fn read_all_sync(file_path: &String) -> Result<Vec<RecordBatch>> {
+    async fn read_pqt_all_sync(file_path: &String) -> Result<Vec<RecordBatch>> {
         // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
         let mut local_path = StorageClientImpl::local_cache_path();
         // print curr time

@@ -15,8 +15,7 @@ python pqt_gen.py --num-rows 1000000 --num-cols 10 --num-files 5
 
 cp bench_files/* server/tests/test_s3_files/
 
-# When server is not available, we put the files on client side
-# This should be commented in format testing
+# When server is not available, we put the files on client side local cache
 # cp bench_files/* /client/parquet_files/
 
 
