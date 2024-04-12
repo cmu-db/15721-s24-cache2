@@ -14,6 +14,7 @@ pub type RecordId = u64;
 ///
 /// Currently we assume the execution engine only requests the whole table/column. We may
 /// add `std::ops::RangeBounds` later to support range query from the execution engine.
+#[derive(Clone)]
 pub enum StorageRequest {
     /// Requests a whole table from the underlying storage.
     Table(TableId),
