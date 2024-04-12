@@ -85,10 +85,8 @@ impl DiskCache {
             redis_res
         } else {
             match cache.get_s3_file_to_cache(&uid_str, connector).await {
-                Ok(local_file_name) => {
+                Ok((local_file_name, file_size)) => {
                     debug!("{} fetched from S3", &uid_str);
-                    let metadata = fs::metadata(&cache.cache_dir.join(&local_file_name)).ok();
-                    let file_size = metadata.unwrap().len();
                     debug!("File size: {} bytes", file_size);
                     cache.ensure_capacity(&redis_read, file_size).await;
                     cache.current_size += file_size;
@@ -118,7 +116,7 @@ impl DiskCache {
         &mut self,
         s3_file_name: &str,
         connector: Arc<dyn StorageConnector + Send + Sync>,
-    ) -> IoResult<PathBuf> {
+    ) -> IoResult<(PathBuf, u64)> {
         connector
             .fetch_and_cache_file(s3_file_name, &self.cache_dir)
             .await

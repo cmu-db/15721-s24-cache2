@@ -9,5 +9,5 @@ pub trait StorageConnector {
         &self,
         file_name: &str,
         cache_path: &PathBuf,
-    ) -> IoResult<PathBuf>;
+    ) -> IoResult<(PathBuf, u64)> ;
 }
