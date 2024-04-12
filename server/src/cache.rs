@@ -30,7 +30,7 @@ pub struct DiskCache {
     cache_dir: PathBuf,
     max_size: u64,
     current_size: u64,
-    access_order: VecDeque<String>,
+    access_order: VecDeque<(String, u64)>,
 }
 
 #[derive(rocket::Responder)]
@@ -87,10 +87,12 @@ impl DiskCache {
             match cache.get_s3_file_to_cache(&uid_str, connector).await {
                 Ok(local_file_name) => {
                     debug!("{} fetched from S3", &uid_str);
-                    cache.ensure_capacity(redis_read).await;
-                    let file_size = 1; // Assume each file has size 1 for simplicity
+                    let metadata = fs::metadata(&cache.cache_dir.join(&local_file_name)).ok();
+                    let file_size = metadata.unwrap().len();
+                    debug!("File size: {} bytes", file_size);
+                    cache.ensure_capacity(&redis_read, file_size).await;
                     cache.current_size += file_size;
-                    cache.access_order.push_back(uid_str.clone());
+                    cache.access_order.push_back((uid_str.clone(), file_size.clone()));
                     let _ = redis_read
                         .set_file_cache_loc(uid_str.clone(), local_file_name.clone())
                         .await;
@@ -122,42 +124,39 @@ impl DiskCache {
             .await
     }
 
-    async fn ensure_capacity(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer>) {
-        // Trigger eviction if the cache is full or over its capacity
-        while self.current_size >= self.max_size && !self.access_order.is_empty() {
-            if let Some(evicted_file_name) = self.access_order.pop_front() {
+    async fn ensure_capacity(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer>, new_file_size: u64) {
+        while self.current_size + new_file_size > self.max_size && !self.access_order.is_empty() {
+            if let Some((evicted_file_name, evicted_file_size)) = self.access_order.pop_front() {
                 let evicted_path = self.cache_dir.join(&evicted_file_name);
-                match fs::metadata(&evicted_path) {
-                    Ok(metadata) => {
-                        let _file_size = metadata.len();
-                        if let Ok(_) = fs::remove_file(&evicted_path) {
-                            // Ensure the cache size is reduced by the actual size of the evicted file
-                            self.current_size -= 1;
-                            let _ = redis_read.remove_file(evicted_file_name.clone()).await;
-
-                            info!("Evicted file: {}", evicted_file_name);
-                        } else {
-                            eprintln!("Failed to delete file: {}", evicted_path.display());
-                        }
-                    }
-                    Err(e) => eprintln!(
-                        "Failed to get metadata for file: {}. Error: {}",
-                        evicted_path.display(),
-                        e
-                    ),
+                if fs::remove_file(&evicted_path).is_ok() {
+                    self.current_size -= evicted_file_size;
+                    let _ = redis_read.remove_file(evicted_file_name.clone()).await;
+                    info!("Evicted file: {}", evicted_file_name);
+                } else {
+                        eprintln!("Failed to delete file: {}", evicted_path.display());
                 }
             }
         }
     }
     // Update a file's position in the access order
-    fn update_access(&mut self, file_name: &String) {
-        self.access_order.retain(|x| x != file_name);
-        self.access_order.push_back(file_name.clone());
+    fn update_access(&mut self, file_name: &str) {
+        let mut file_size: Option<u64> = None;
+        self.access_order.retain(|(name, size)| {
+            if name == file_name {
+                file_size = Some(*size);
+                false
+            } else {
+                true
+            }
+        });
+        if let Some(size) = file_size {
+            self.access_order.push_back((file_name.to_string(), size.clone()));
+        }
     }
 
     async fn empty(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer>) {
         self.current_size = 0;
-        while let Some(x) = self.access_order.pop_front() {
+        while let Some((x, _)) = self.access_order.pop_front() {
             let evicted_path = self.cache_dir.join(&x);
             let _ = fs::remove_file(&evicted_path);
             let _ = redis_read.remove_file(x).await;
@@ -239,10 +238,12 @@ impl ConcurrentDiskCache {
         for (index, shard) in self.shards.iter().enumerate() {
             match tokio::time::timeout(std::time::Duration::from_secs(5), shard.lock()).await {
                 Ok(shard_guard) => {
-                    let files_in_shard: Vec<_> = shard_guard.access_order.iter().collect();
+                    let files_in_shard: Vec<_> = shard_guard.access_order.iter()
+                    .map(|(name, size)| format!("{} ({}B)", name, size))
+                    .collect::<Vec<String>>();
                     let total_files = files_in_shard.len();
-                    let used_capacity_pct =
-                        (shard_guard.current_size as f64 / shard_guard.max_size as f64) * 100.0;
+                    let calculated_current_size: u64 = shard_guard.access_order.iter().map(|(_, size)| size).sum();
+                    let used_capacity_pct = (calculated_current_size as f64 / shard_guard.max_size as f64) * 100.0;
                     stats_summary.push_str(&format!(
                         "{:<15} | {:<12} | {:<12.2} | {:<10} | {:?}\n",
                         format!("Shard {}", index),
