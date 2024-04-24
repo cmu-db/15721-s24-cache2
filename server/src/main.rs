@@ -28,7 +28,7 @@ async fn main() -> Result<(), rocket::Error> {
             Arg::with_name("server_ip")
                 .long("server-ip")
                 .takes_value(true)
-                .default_value("localhost")
+                .default_value("localhost"),
         )
         .arg(
             Arg::with_name("use_mock_s3")
@@ -76,7 +76,10 @@ async fn main() -> Result<(), rocket::Error> {
         .unwrap_or(String::from("6379"))
         .parse::<u16>()
         .unwrap();
-    let server_ip = matches.value_of("server_ip").unwrap_or_default().to_string();
+    let server_ip = matches
+        .value_of("server_ip")
+        .unwrap_or_default()
+        .to_string();
     let cache_dir = std::env::var("CACHE_DIR").unwrap_or(format!("./cache_{}", redis_port));
     let s3_endpoint = matches.value_of("s3_endpoint").unwrap_or_default();
     let bucket = matches.value_of("bucket").unwrap_or("istziio-bucket");

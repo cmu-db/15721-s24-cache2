@@ -121,7 +121,9 @@ impl RedisServer {
 
         if new_mapping.is_empty() {
             debug!("No slots were found for any nodes. The mapping might be incorrect.");
-            return Err(redis::RedisError::from(std::io::Error::other("no slots were found for any nodes")));
+            return Err(redis::RedisError::from(std::io::Error::other(
+                "no slots were found for any nodes",
+            )));
         }
 
         self.slot_to_node_mapping = new_mapping;
