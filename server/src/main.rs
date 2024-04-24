@@ -25,6 +25,12 @@ async fn main() -> Result<(), rocket::Error> {
         .author("istziio")
         .about("A distributed server node to serve as cache to S3")
         .arg(
+            Arg::with_name("server_ip")
+                .long("server-ip")
+                .takes_value(true)
+                .default_value("localhost")
+        )
+        .arg(
             Arg::with_name("use_mock_s3")
                 .long("use-mock-s3")
                 .help("Use the mock S3 storage connector"),
@@ -70,6 +76,7 @@ async fn main() -> Result<(), rocket::Error> {
         .unwrap_or(String::from("6379"))
         .parse::<u16>()
         .unwrap();
+    let server_ip = matches.value_of("server_ip").unwrap_or_default().to_string();
     let cache_dir = std::env::var("CACHE_DIR").unwrap_or(format!("./cache_{}", redis_port));
     let s3_endpoint = matches.value_of("s3_endpoint").unwrap_or_default();
     let bucket = matches.value_of("bucket").unwrap_or("istziio-bucket");
@@ -78,6 +85,7 @@ async fn main() -> Result<(), rocket::Error> {
     let secret_key = matches.value_of("secret_key").unwrap_or_default();
     let config = if use_mock_s3 {
         ServerConfig {
+            server_ip,
             redis_port,
             cache_dir,
             bucket: Some(String::from(bucket)),
@@ -88,6 +96,7 @@ async fn main() -> Result<(), rocket::Error> {
         }
     } else {
         ServerConfig {
+            server_ip,
             redis_port,
             cache_dir,
             bucket: Some(String::from(bucket)),

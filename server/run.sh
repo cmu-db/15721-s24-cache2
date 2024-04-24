@@ -23,6 +23,7 @@ mkdir -p "${LOG_DIR}"
 
 # Server root directory
 SERVER_ROOT="${SERVER_ROOT:-"."}" 
+SERVER_IP="${SERVER_IP:-"0.0.0.0"}" 
 
 # Names or keywords to identify your processes
 PROCESS_NAMES=("istziio_server_node" "redis-serveredis-serverr")
@@ -35,7 +36,7 @@ done
 echo "Existing processes killed, if any were running."
 
 # Start Redis instances
-redis-server $SERVER_ROOT/redis.conf --port 6379 --cluster-config-file node1.conf&
+redis-server $SERVER_ROOT/redis.conf --port 6379 --cluster-config-file node1.conf& 
 redis-server $SERVER_ROOT/redis.conf --port 6380 --cluster-config-file node2.conf&
 redis-server $SERVER_ROOT/redis.conf --port 6381 --cluster-config-file node3.conf&
 
@@ -44,22 +45,25 @@ echo "Redis servers starting..."
 sleep 5
 
 # Creating the cluster
-redis-cli --cluster create localhost:6379 localhost:6380 localhost:6381 --cluster-replicas 0 --cluster-yes
+redis-cli --cluster create $SERVER_IP:6379 $SERVER_IP:6380 $SERVER_IP:6381 --cluster-replicas 0 --cluster-yes
 
 echo "Redis cluster created."
 
 # Starting the application servers
 REDIS_PORT=6379 cargo run --\
+  --server-ip $SERVER_IP \
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
   --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6379.log" 2>&1 &
 REDIS_PORT=6380 cargo run --\
+  --server-ip $SERVER_IP \
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
   --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6380.log" 2>&1 &
 REDIS_PORT=6381 cargo run --\
+  --server-ip $SERVER_IP \
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \

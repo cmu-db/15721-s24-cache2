@@ -46,6 +46,7 @@ pub struct ServerNode {
 }
 
 pub struct ServerConfig {
+    pub server_ip: String,
     pub redis_port: u16,
     pub cache_dir: String,
     pub bucket: Option<String>,
@@ -77,7 +78,7 @@ impl ServerNode {
         let cache_manager = Arc::new(ConcurrentDiskCache::new(
             PathBuf::from(&config.cache_dir),
             6, // [TODO] make this configurable
-            vec![format!("redis://0.0.0.0:{}", config.redis_port)],
+            vec![format!("redis://{}:{}", config.server_ip, config.redis_port)],
             config.redis_port,
         ));
         ServerNode {

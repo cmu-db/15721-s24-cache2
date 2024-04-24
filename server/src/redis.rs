@@ -49,12 +49,11 @@ impl RedisServer {
         &self.myid
     }
     // Function to update the slot-to-node mapping
-    pub async fn update_slot_to_node_mapping(&mut self) -> Result<(), ()> {
+    pub async fn update_slot_to_node_mapping(&mut self) -> Result<(), redis::RedisError> {
         let mut conn = self.client.get_connection().unwrap();
         let shards = redis::cmd("CLUSTER")
             .arg("SHARDS")
-            .query::<Vec<Vec<redis::Value>>>(&mut conn)
-            .unwrap();
+            .query::<Vec<Vec<redis::Value>>>(&mut conn)?;
         let mut new_mapping: HashMap<KeyslotId, NodeInfo> = HashMap::new();
 
         for shard_info in shards {
@@ -122,7 +121,7 @@ impl RedisServer {
 
         if new_mapping.is_empty() {
             debug!("No slots were found for any nodes. The mapping might be incorrect.");
-            return Err(());
+            return Err(redis::RedisError::from(std::io::Error::other("no slots were found for any nodes")));
         }
 
         self.slot_to_node_mapping = new_mapping;
