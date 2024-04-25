@@ -23,7 +23,7 @@ mkdir -p "${LOG_DIR}"
 
 # Server root directory
 SERVER_ROOT="${SERVER_ROOT:-"."}" 
-SERVER_IP="${SERVER_IP:-"0.0.0.0"}" 
+SERVER_IP="${SERVER_IP:-"localhost"}" 
 
 # Names or keywords to identify your processes
 PROCESS_NAMES=("istziio_server_node" "redis-serveredis-serverr")
