@@ -95,7 +95,11 @@ impl ServerNode {
         let cache_state = self.cache_manager.clone();
         let s3_connector_state = self.s3_connector.clone();
         rocket::build()
-            .configure(rocket::Config::figment().merge(("address", &self.config.server_ip)).merge(("port", rocket_port)))
+            .configure(
+                rocket::Config::figment()
+                    .merge(("address", &self.config.server_ip))
+                    .merge(("port", rocket_port)),
+            )
             .manage(cache_state)
             .manage(s3_connector_state)
             .mount("/", routes![health_check, get_file, cache_stats, clear])
