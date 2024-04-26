@@ -53,9 +53,7 @@ impl StorageClientImpl {
     }
 
     pub fn local_cache_path() -> String {
-        let tmp_dir = std::env::temp_dir().into_os_string().into_string().unwrap_or(String::from("./"));
-        let cache = format!("{}istziio_client_cache/", tmp_dir);
-        cache
+        String::from("./istziio_client_cache/")
     }
 
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
