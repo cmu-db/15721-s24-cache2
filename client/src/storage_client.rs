@@ -53,8 +53,8 @@ impl StorageClientImpl {
     }
 
     pub fn local_cache_path() -> String {
-        let tmp_dir: String = std::env::temp_dir().into_os_string().into_string().unwrap_or(String::from("/tmp"));;
-        let cache = format!("{}15721-s24-cache2/client/parquet_files/", tmp_dir);
+        let tmp_dir = std::env::temp_dir().into_os_string().into_string().unwrap_or(String::from("./"));
+        let cache = format!("{}istziio_client_cache/", tmp_dir);
         cache
     }
 

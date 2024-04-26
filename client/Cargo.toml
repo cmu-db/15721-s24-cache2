@@ -1,6 +1,6 @@
 [package]
 name = "istziio-client"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2018"
 authors = ["Shuning Lin <86640627+ScottLinnn@users.noreply.github.com>", "J-HowHuang <howardhuang2001@gmail.com>"]
 description = "Client application for ISTZIIO OLAP database I/O cache service"
