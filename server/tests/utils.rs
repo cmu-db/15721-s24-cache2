@@ -4,7 +4,7 @@ use std::env;
 
 pub fn get_server_config_mocks3(redis_port: u16) -> ServerConfig {
     ServerConfig {
-        server_ip: String::from("localhost"),
+        server_ip: String::from("127.0.0.1"),
         redis_port,
         cache_dir: format!("./cache_{}", redis_port),
         use_mock_s3_endpoint: Some(String::from("http://0.0.0.0:6333")),
@@ -21,7 +21,7 @@ pub fn get_server_config_s3(
     aws_secret_key: String,
 ) -> ServerConfig {
     ServerConfig {
-        server_ip: String::from("localhost"),
+        server_ip: String::from("127.0.0.1"),
         redis_port,
         cache_dir: format!("./cache_{}", redis_port),
         use_mock_s3_endpoint: None,
