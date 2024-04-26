@@ -22,8 +22,8 @@ pub struct StorageClientImpl {
 impl StorageClientImpl {
     /// Create a StorageClient instance
     pub fn new(id: usize, server_url: &str) -> Self {
-        let home = std::env::var("HOME").unwrap();
-        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", home);
+        let tmp_dir: String = std::env::var("$TMPDIR").unwrap_or(String::from("/tmp"));
+        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", tmp_dir);
         if !Path::new(&cache).exists() {
             fs::create_dir_all(&cache).unwrap();
         }
@@ -40,8 +40,8 @@ impl StorageClientImpl {
     }
 
     pub fn new_for_test(id: usize, map: HashMap<TableId, String>, server_url: &str) -> Self {
-        let home = std::env::var("HOME").unwrap();
-        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", home);
+        let tmp_dir: String = std::env::var("$TMPDIR").unwrap_or(String::from("/tmp"));
+        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", tmp_dir);
         if !Path::new(&cache).exists() {
             fs::create_dir_all(&cache).unwrap();
         }
