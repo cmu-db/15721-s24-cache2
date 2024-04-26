@@ -1,5 +1,5 @@
-use client::client_api::{StorageClient, StorageRequest, TableId};
-use client::storage_client::StorageClientImpl;
+use istziio_client::client_api::{StorageClient, StorageRequest, TableId};
+use istziio_client::storage_client::StorageClientImpl;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
