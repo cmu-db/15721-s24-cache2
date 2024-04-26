@@ -22,8 +22,7 @@ pub struct StorageClientImpl {
 impl StorageClientImpl {
     /// Create a StorageClient instance
     pub fn new(id: usize, server_url: &str) -> Self {
-        let tmp_dir: String = std::env::var("$TMPDIR").unwrap_or(String::from("/tmp"));
-        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", tmp_dir);
+        let cache = StorageClientImpl::local_cache_path();
         if !Path::new(&cache).exists() {
             fs::create_dir_all(&cache).unwrap();
         }
@@ -40,8 +39,8 @@ impl StorageClientImpl {
     }
 
     pub fn new_for_test(id: usize, map: HashMap<TableId, String>, server_url: &str) -> Self {
-        let tmp_dir: String = std::env::var("$TMPDIR").unwrap_or(String::from("/tmp"));
-        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", tmp_dir);
+        let cache = StorageClientImpl::local_cache_path();
+        println!("Save cache to {}", cache);
         if !Path::new(&cache).exists() {
             fs::create_dir_all(&cache).unwrap();
         }
@@ -54,8 +53,8 @@ impl StorageClientImpl {
     }
 
     pub fn local_cache_path() -> String {
-        let home = std::env::var("HOME").unwrap();
-        let cache = format!("{}/15721-s24-cache2/client/parquet_files/", home);
+        let tmp_dir: String = std::env::temp_dir().into_os_string().into_string().unwrap_or(String::from("/tmp"));;
+        let cache = format!("{}15721-s24-cache2/client/parquet_files/", tmp_dir);
         cache
     }
 
@@ -164,10 +163,10 @@ impl StorageClientImpl {
         let mut file_path = self.local_cache.clone();
 
         file_path.push_str(file_name);
-        let mut file = File::create(file_path)?;
+        let mut file = File::create(&file_path)?;
 
         file.write_all(&file_contents)?;
-
+        println!("parquet written to {}", file_path);
         // STREAM VERSION CODE!
 
         // let mut file_path = self.local_cache.clone();
