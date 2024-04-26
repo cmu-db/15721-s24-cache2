@@ -21,7 +21,7 @@ pub struct StorageClientImpl {
 }
 impl StorageClientImpl {
     /// Create a StorageClient instance
-    pub fn new(id: usize) -> Self {
+    pub fn new(id: usize, server_url: &str) -> Self {
         let home = std::env::var("HOME").unwrap();
         let cache = format!("{}/15721-s24-cache2/client/parquet_files/", home);
         if !Path::new(&cache).exists() {
@@ -30,7 +30,7 @@ impl StorageClientImpl {
         Self {
             id,
             table_file_map: HashMap::new(),
-            server_url: "http://localhost:26380".to_string(),
+            server_url: server_url.to_string(),
             local_cache: cache,
         }
     }
@@ -39,7 +39,7 @@ impl StorageClientImpl {
         self.id
     }
 
-    pub fn new_for_test(id: usize, map: HashMap<TableId, String>) -> Self {
+    pub fn new_for_test(id: usize, map: HashMap<TableId, String>, server_url: &str) -> Self {
         let home = std::env::var("HOME").unwrap();
         let cache = format!("{}/15721-s24-cache2/client/parquet_files/", home);
         if !Path::new(&cache).exists() {
@@ -48,7 +48,7 @@ impl StorageClientImpl {
         Self {
             id,
             table_file_map: map,
-            server_url: "http://localhost:26380".to_string(),
+            server_url: server_url.to_string(),
             local_cache: cache,
         }
     }
@@ -333,7 +333,7 @@ mod tests {
         create_sample_parquet_file(file_name).unwrap();
 
         (
-            StorageClientImpl::new_for_test(1, table_file_map),
+            StorageClientImpl::new_for_test(1, table_file_map, "http://localhost:26380"),
             file_name.to_string(),
         )
     }
@@ -345,7 +345,7 @@ mod tests {
         file_path.push_str(file_name);
         table_file_map.insert(0, file_name.to_string());
 
-        StorageClientImpl::new_for_test(1, table_file_map)
+        StorageClientImpl::new_for_test(1, table_file_map, "http://localhost:26380")
     }
 
     #[test]
