@@ -50,19 +50,19 @@ redis-cli --cluster create $SERVER_IP:6379 $SERVER_IP:6380 $SERVER_IP:6381 --clu
 echo "Redis cluster created."
 
 # Starting the application servers
-REDIS_PORT=6379 cargo run --\
+REDIS_PORT=6379 cargo run --bin istziio_server_node --\
   --server-ip $SERVER_IP \
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
   --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6379.log" 2>&1 &
-REDIS_PORT=6380 cargo run --\
+REDIS_PORT=6380 cargo run --bin istziio_server_node --\
   --server-ip $SERVER_IP \
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
   --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6380.log" 2>&1 &
-REDIS_PORT=6381 cargo run --\
+REDIS_PORT=6381 cargo run --bin istziio_server_node --\
   --server-ip $SERVER_IP \
   --bucket "istziio-bucket" \
   --region "us-east-1" \
