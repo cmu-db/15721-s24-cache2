@@ -62,9 +62,9 @@ impl StorageClientImpl {
         let file_path = self.get_path(table)?;
         local_path.push_str(&file_path);
 
-        if !Path::new(&local_path).exists() {
-            self.fetch_file(&file_path).await?;
-        }
+        // if !Path::new(&local_path).exists() {
+        self.fetch_file(&file_path).await?;
+        // }
         let (sender, receiver) = channel::<RecordBatch>(1000);
 
         // Spawn a new async task to read the parquet file and send the data
@@ -81,14 +81,14 @@ impl StorageClientImpl {
         let file_path = self.get_path(table)?;
         local_path.push_str(&file_path);
 
-        if !Path::new(&local_path).exists() {
-            let start = std::time::Instant::now();
-            let _ = self.fetch_file(&file_path).await;
-            // Check the result of the fetch operation
-            // print elapse time
-            let duration = start.elapsed();
-            println!("Time used to fetch file: {:?}", duration);
-        }
+        // if !Path::new(&local_path).exists() {
+        let start = std::time::Instant::now();
+        let _ = self.fetch_file(&file_path).await;
+        // Check the result of the fetch operation
+        // print elapse time
+        let duration = start.elapsed();
+        println!("Time used to fetch file: {:?}", duration);
+        // }
         Self::read_pqt_all_sync(&file_path).await
     }
 
@@ -204,6 +204,10 @@ impl StorageClientImpl {
         // print curr time
         let start = std::time::Instant::now();
         local_path.push_str(&file_path);
+        print!(
+            "read_pqt_all_sync Reading from local_path: {:?}",
+            local_path
+        );
         let file = File::open(local_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;

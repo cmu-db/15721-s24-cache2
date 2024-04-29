@@ -11,7 +11,7 @@ rm client/parquet_files/*
 mkdir -p bench_files
 
 # This generates benchmark parquet files
-python pqt_gen.py --num-rows 1000000 --num-cols 10 --num-files 4
+python pqt_gen.py --num-rows 1000000 --num-cols 10 --num-files 5
 
 cp bench_files/* server/tests/test_s3_files/
 
@@ -25,6 +25,7 @@ cd client
 cargo build --bin benchmark
 
 export CLIENT_FILES_DIR=$HOME/15721-s24-cache2/client/parquet_files/
-
-RUST_BACKTRACE=1 cargo run --package client --bin benchmark
+export SERVER_URL=http://localhost:26380
+export RUST_BACKTRACE=full
+RUST_BACKTRACE=1 cargo run --package istziio-client --bin benchmark
 
