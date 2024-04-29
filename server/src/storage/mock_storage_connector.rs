@@ -22,7 +22,7 @@ impl StorageConnector for MockS3StorageConnector {
         &self,
         file_name: &str,
         cache_path: &PathBuf,
-    ) -> IoResult<(PathBuf, u64)>  {
+    ) -> IoResult<(PathBuf, u64)> {
         let s3_file_url = format!("{}/{}", self.s3_endpoint, file_name);
         let response = reqwest::get(&s3_file_url)
             .await

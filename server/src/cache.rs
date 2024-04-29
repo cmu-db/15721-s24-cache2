@@ -16,7 +16,6 @@ use crate::storage::storage_connector::StorageConnector;
 use crate::util::hash;
 
 // Constants
-const BUCKET_SIZE: u64 = 3;
 pub const PORT_OFFSET_TO_WEB_SERVER: u16 = 20000;
 // Cache Structures -----------------------------------------------------------
 
@@ -90,7 +89,9 @@ impl DiskCache {
                     debug!("File size: {} bytes", file_size);
                     cache.ensure_capacity(&redis_read, file_size).await;
                     cache.current_size += file_size;
-                    cache.access_order.push_back((uid_str.clone(), file_size.clone()));
+                    cache
+                        .access_order
+                        .push_back((uid_str.clone(), file_size.clone()));
                     let _ = redis_read
                         .set_file_cache_loc(uid_str.clone(), local_file_name.clone())
                         .await;
@@ -122,7 +123,11 @@ impl DiskCache {
             .await
     }
 
-    async fn ensure_capacity(&mut self, redis_read: &RwLockReadGuard<'_, RedisServer>, new_file_size: u64) {
+    async fn ensure_capacity(
+        &mut self,
+        redis_read: &RwLockReadGuard<'_, RedisServer>,
+        new_file_size: u64,
+    ) {
         while self.current_size + new_file_size > self.max_size && !self.access_order.is_empty() {
             if let Some((evicted_file_name, evicted_file_size)) = self.access_order.pop_front() {
                 let evicted_path = self.cache_dir.join(&evicted_file_name);
@@ -131,7 +136,7 @@ impl DiskCache {
                     let _ = redis_read.remove_file(evicted_file_name.clone()).await;
                     info!("Evicted file: {}", evicted_file_name);
                 } else {
-                        eprintln!("Failed to delete file: {}", evicted_path.display());
+                    eprintln!("Failed to delete file: {}", evicted_path.display());
                 }
             }
         }
@@ -148,7 +153,8 @@ impl DiskCache {
             }
         });
         if let Some(size) = file_size {
-            self.access_order.push_back((file_name.to_string(), size.clone()));
+            self.access_order
+                .push_back((file_name.to_string(), size.clone()));
         }
     }
 
@@ -169,14 +175,15 @@ impl ConcurrentDiskCache {
     pub fn new(
         cache_dir: PathBuf,
         max_size: u64,
+        bucket_size: u64,
         redis_addrs: Vec<String>,
         redis_port: u16,
     ) -> Self {
         let _ = std::fs::create_dir_all(cache_dir.clone());
-        let shard_max_size = max_size / BUCKET_SIZE as u64;
+        let shard_max_size = max_size / bucket_size as u64;
         let redis_server = RedisServer::new(redis_addrs).unwrap();
         let redis = Arc::new(RwLock::new(redis_server));
-        let shards = (0..BUCKET_SIZE)
+        let shards = (0..bucket_size)
             .map(|_| DiskCache::new(cache_dir.clone(), shard_max_size))
             .collect::<Vec<_>>();
 
@@ -236,12 +243,16 @@ impl ConcurrentDiskCache {
         for (index, shard) in self.shards.iter().enumerate() {
             match tokio::time::timeout(std::time::Duration::from_secs(5), shard.lock()).await {
                 Ok(shard_guard) => {
-                    let files_in_shard: Vec<_> = shard_guard.access_order.iter()
-                    .map(|(name, size)| format!("{} ({}B)", name, size))
-                    .collect::<Vec<String>>();
+                    let files_in_shard: Vec<_> = shard_guard
+                        .access_order
+                        .iter()
+                        .map(|(name, size)| format!("{} ({}B)", name, size))
+                        .collect::<Vec<String>>();
                     let total_files = files_in_shard.len();
-                    let calculated_current_size: u64 = shard_guard.access_order.iter().map(|(_, size)| size).sum();
-                    let used_capacity_pct = (calculated_current_size as f64 / shard_guard.max_size as f64) * 100.0;
+                    let calculated_current_size: u64 =
+                        shard_guard.access_order.iter().map(|(_, size)| size).sum();
+                    let used_capacity_pct =
+                        (calculated_current_size as f64 / shard_guard.max_size as f64) * 100.0;
                     stats_summary.push_str(&format!(
                         "{:<15} | {:<12} | {:<12.2} | {:<10} | {:?}\n",
                         format!("Shard {}", index),

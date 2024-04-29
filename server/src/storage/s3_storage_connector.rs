@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use aws_sdk_s3::{Client, Config, Credentials, Region};
 use log::debug;
 use rocket::futures::StreamExt;
-use tokio::time::Instant;
 use std::io;
 use std::io::Result as IoResult;
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use tokio::time::Instant;
 
 use super::storage_connector::StorageConnector;
 
@@ -78,7 +78,10 @@ impl StorageConnector for S3StorageConnector {
                 file.flush().await?;
                 let duration = start.elapsed();
 
-                debug!("Object '{}' fetched and cached successfully with size: {} bytes in {:?}", file_name, file_size, duration);
+                debug!(
+                    "Object '{}' fetched and cached successfully with size: {} bytes in {:?}",
+                    file_name, file_size, duration
+                );
                 Ok((Path::new("").join(file_name), file_size))
             }
             Err(aws_sdk_s3::SdkError::ServiceError { err, .. }) => {
