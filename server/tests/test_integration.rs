@@ -80,7 +80,7 @@ fn test_evict() {
 #[test]
 fn test_s3_connector() {
     let (_, [client_1, _, _]) = utils::launch_server_node_size_3(false);
-    let response = client_1.get("/s3/test2.txt").dispatch();
+    let response: rocket::local::blocking::LocalResponse = client_1.get("/s3/test2.txt").dispatch();
     assert_eq!(response.status(), Status::Ok);
     let response = client_1.post("/clear").dispatch();
     assert_eq!(response.status(), Status::Ok);

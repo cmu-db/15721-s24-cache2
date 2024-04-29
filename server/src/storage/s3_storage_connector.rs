@@ -7,6 +7,7 @@ use std::io::Result as IoResult;
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use tokio::time::Instant;
 
 use super::storage_connector::StorageConnector;
 
@@ -44,14 +45,14 @@ impl StorageConnector for S3StorageConnector {
         &self,
         file_name: &str,
         cache_path: &PathBuf,
-    ) -> IoResult<PathBuf> {
+    ) -> IoResult<(PathBuf, u64)> {
         debug!(
             "Fetching object '{}' from S3 bucket '{}'",
             file_name, self.bucket
         );
         // Assemble the object key with the file name
         let object_key = file_name;
-
+        let start = Instant::now();
         // Attempt to fetch the object from S3
         let result = self
             .client
@@ -66,16 +67,22 @@ impl StorageConnector for S3StorageConnector {
             Ok(resp) => {
                 let cache_file_path = cache_path.join(file_name);
                 let mut file = File::create(&cache_file_path).await?;
-
+                let mut file_size = 0u64;
                 let mut stream = resp.body;
                 while let Some(chunk) = stream.next().await {
                     let data =
                         chunk.map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                    file_size += data.len() as u64;
                     file.write_all(&data).await?;
                 }
+                file.flush().await?;
+                let duration = start.elapsed();
 
-                debug!("Object '{}' fetched successfully", file_name);
-                Ok(Path::new("").join(file_name))
+                debug!(
+                    "Object '{}' fetched and cached successfully with size: {} bytes in {:?}",
+                    file_name, file_size, duration
+                );
+                Ok((Path::new("").join(file_name), file_size))
             }
             Err(aws_sdk_s3::SdkError::ServiceError { err, .. }) => {
                 match err.kind {
