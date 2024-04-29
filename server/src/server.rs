@@ -53,8 +53,8 @@ pub struct ServerConfig {
     pub access_key: Option<String>,
     pub secret_key: Option<String>,
     pub use_mock_s3_endpoint: Option<String>,
-    pub max_size: u64,    // New field for max_size
-    pub bucket_size: u64, // New field for bucket_size
+    pub max_size: u64,
+    pub bucket_size: u64,
 }
 
 impl ServerNode {
@@ -78,8 +78,8 @@ impl ServerNode {
 
         let cache_manager = Arc::new(ConcurrentDiskCache::new(
             PathBuf::from(&config.cache_dir),
-            config.max_size, // [TODO] make this configurable
-            config.bucket_size, // [TODO] make this configurable
+            config.max_size,
+            config.bucket_size,
             vec![format!("redis://0.0.0.0:{}", config.redis_port)],
             config.redis_port,
         ));

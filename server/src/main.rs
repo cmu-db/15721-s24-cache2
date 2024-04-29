@@ -90,8 +90,16 @@ async fn main() -> Result<(), rocket::Error> {
     let region_name = matches.value_of("region").unwrap_or("us-east-1");
     let access_key = matches.value_of("access_key").unwrap_or_default();
     let secret_key = matches.value_of("secret_key").unwrap_or_default();
-    let max_size = matches.value_of("max_size").unwrap().parse::<u64>().unwrap(); // Bytes
-    let bucket_size = matches.value_of("bucket_size").unwrap().parse::<u64>().unwrap();
+    let max_size = matches
+        .value_of("max_size")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap(); // Bytes
+    let bucket_size = matches
+        .value_of("bucket_size")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
     let config = if use_mock_s3 {
         ServerConfig {
             redis_port,
