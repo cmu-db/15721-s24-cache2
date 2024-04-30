@@ -43,9 +43,10 @@ redis-server $SERVER_ROOT/redis.conf --port 6379 --cluster-config-file node1.con
 echo "Redis servers starting..."
 
 sleep 5
-
+if [ $# -eq 1 ]; then
+    redis-cli --cluster create $NODE_1_IP $NODE_2_IP $NODE_3_IP --cluster-replicas 0 --cluster-yes
+fi
 # Creating the cluster
-redis-cli --cluster create $NODE_1_IP $NODE_2_IP $NODE_3_IP --cluster-replicas 0 --cluster-yes
 
 sleep 5
 echo "Redis cluster created."
