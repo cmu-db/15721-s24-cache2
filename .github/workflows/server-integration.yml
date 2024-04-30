@@ -6,6 +6,7 @@ on:
       - 'cp2-server*'
       - 'rust-integration-test'
       - 'server-*'
+      - 'benchmark'
   pull_request:
     branches: 
       - 'main'

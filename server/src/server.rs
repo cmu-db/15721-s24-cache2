@@ -51,6 +51,7 @@ pub struct ServerNode {
 }
 
 pub struct ServerConfig {
+    pub server_ip: String,
     pub redis_port: u16,
     pub cache_dir: String,
     pub bucket: Option<String>,
@@ -88,7 +89,10 @@ impl ServerNode {
             PathBuf::from(&config.cache_dir),
             config.max_size,
             config.bucket_size,
-            vec![format!("redis://0.0.0.0:{}", config.redis_port)],
+            vec![format!(
+                "redis://{}:{}",
+                config.server_ip, config.redis_port
+            )],
             config.redis_port,
         ));
         ServerNode {
@@ -102,7 +106,11 @@ impl ServerNode {
         let cache_state = self.cache_manager.clone();
         let s3_connector_state = self.s3_connectors.clone(); // Now cloning the vector of connectors
         rocket::build()
-            .configure(rocket::Config::figment().merge(("port", rocket_port)))
+            .configure(
+                rocket::Config::figment()
+                    .merge(("address", &self.config.server_ip))
+                    .merge(("port", rocket_port)),
+            )
             .manage(cache_state)
             .manage(s3_connector_state)
             .mount("/", routes![health_check, get_file, cache_stats, clear])

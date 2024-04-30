@@ -1,9 +1,19 @@
 [package]
-name = "client"
-version = "0.1.0"
+name = "istziio-client"
+version = "0.1.7"
 edition = "2018"
-authors = ["Your Name <your.email@example.com>"]
-description = "Client application"
+authors = ["Shuning Lin <86640627+ScottLinnn@users.noreply.github.com>", "J-HowHuang <howardhuang2001@gmail.com>"]
+description = "Client application for ISTZIIO OLAP database I/O cache service"
+license-file = "LICENSE"
+homepage = "https://github.com/cmu-db/15721-s24-cache2"
+repository = "https://github.com/cmu-db/15721-s24-cache2"
+documentation = "https://github.com/cmu-db/15721-s24-cache2/blob/main/README.md"
+readme = "README.md"
+include = [
+    "src/client_api.rs",
+    "src/storage_client.rs",
+    "src/lib.rs"
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -19,6 +29,7 @@ env_logger = "0.11.1"
 async-trait = "0.1"
 rocket = { version = "0.5.0", features = ["json"] }
 reqwest = { version = "0.11", features = ["stream", "json"] }
+
 
 [[bin]]
 name = "benchmark"
