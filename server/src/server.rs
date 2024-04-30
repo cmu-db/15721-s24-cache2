@@ -89,7 +89,10 @@ impl ServerNode {
             PathBuf::from(&config.cache_dir),
             config.max_size,
             config.bucket_size,
-            vec![format!("redis://0.0.0.0:{}", config.redis_port)],
+            vec![format!(
+                "redis://{}:{}",
+                config.server_ip, config.redis_port
+            )],
             config.redis_port,
         ));
         ServerNode {
