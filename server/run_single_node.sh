@@ -1,9 +1,9 @@
 #!/bin/bash
 # The ports where Redis nodes are running
 ports=(6379)
-NODE_1_URL="${NODE_1_URL:-"localhost:6379"}"
-NODE_2_URL="${NODE_2_URL:-"localhost:6380"}"
-NODE_3_URL="${NODE_3_URL:-"localhost:6381"}" 
+NODE_1_IP="${NODE_1_IP:-"localhost"}":6379
+NODE_2_IP="${NODE_2_IP:-"localhost"}":6379
+NODE_3_IP="${NODE_3_IP:-"localhost"}":6379
 
 # Loop over each port and flush all databases then perform a hard reset on the cluster
 for port in "${ports[@]}"
@@ -45,7 +45,7 @@ echo "Redis servers starting..."
 sleep 5
 
 # Creating the cluster
-redis-cli --cluster create $NODE_1_URL $NODE_2_URL $NODE_3_URL --cluster-replicas 0 --cluster-yes
+redis-cli --cluster create $NODE_1_IP $NODE_2_IP $NODE_3_IP --cluster-replicas 0 --cluster-yes
 
 sleep 5
 echo "Redis cluster created."
