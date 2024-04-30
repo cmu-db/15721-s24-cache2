@@ -18,6 +18,7 @@ pub struct StorageClientImpl {
     table_file_map: HashMap<TableId, String>,
     server_url: String,
     local_cache: String,
+    use_local_cache: bool,
 }
 impl StorageClientImpl {
     /// Create a StorageClient instance
@@ -31,6 +32,7 @@ impl StorageClientImpl {
             table_file_map: HashMap::new(),
             server_url: server_url.to_string(),
             local_cache: cache,
+            use_local_cache: false,
         }
     }
 
@@ -38,7 +40,12 @@ impl StorageClientImpl {
         self.id
     }
 
-    pub fn new_for_test(id: usize, map: HashMap<TableId, String>, server_url: &str) -> Self {
+    pub fn new_for_test(
+        id: usize,
+        map: HashMap<TableId, String>,
+        server_url: &str,
+        use_local_cache: bool,
+    ) -> Self {
         let cache = StorageClientImpl::local_cache_path();
         println!("Save cache to {}", cache);
         if !Path::new(&cache).exists() {
@@ -49,6 +56,7 @@ impl StorageClientImpl {
             table_file_map: map,
             server_url: server_url.to_string(),
             local_cache: cache,
+            use_local_cache: use_local_cache,
         }
     }
 
@@ -58,13 +66,16 @@ impl StorageClientImpl {
 
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
     pub async fn read_entire_table(&self, table: TableId) -> Result<Receiver<RecordBatch>> {
-        let mut local_path = self.local_cache.clone();
+        // let mut local_path = self.local_cache.clone();
         let file_path = self.get_path(table)?;
-        local_path.push_str(&file_path);
+        // local_path.push_str(&file_path);
 
-        // if !Path::new(&local_path).exists() {
-        self.fetch_file(&file_path).await?;
-        // }
+        if !self.use_local_cache {
+            let start = std::time::Instant::now();
+            let _ = self.fetch_file(&file_path).await;
+            let duration = start.elapsed();
+            println!("Time used to fetch file: {:?}", duration);
+        }
         let (sender, receiver) = channel::<RecordBatch>(1000);
 
         // Spawn a new async task to read the parquet file and send the data
@@ -77,18 +88,16 @@ impl StorageClientImpl {
     }
 
     pub async fn read_entire_table_sync(&self, table: TableId) -> Result<Vec<RecordBatch>> {
-        let mut local_path = self.local_cache.clone();
+        // let mut local_path = self.local_cache.clone();
         let file_path = self.get_path(table)?;
-        local_path.push_str(&file_path);
+        // local_path.push_str(&file_path);
 
-        // if !Path::new(&local_path).exists() {
-        let start = std::time::Instant::now();
-        let _ = self.fetch_file(&file_path).await;
-        // Check the result of the fetch operation
-        // print elapse time
-        let duration = start.elapsed();
-        println!("Time used to fetch file: {:?}", duration);
-        // }
+        if !self.use_local_cache {
+            let start = std::time::Instant::now();
+            let _ = self.fetch_file(&file_path).await;
+            let duration = start.elapsed();
+            println!("Time used to fetch file: {:?}", duration);
+        }
         Self::read_pqt_all_sync(&file_path).await
     }
 
@@ -334,7 +343,7 @@ mod tests {
         create_sample_parquet_file(file_name).unwrap();
 
         (
-            StorageClientImpl::new_for_test(1, table_file_map, "http://localhost:26380"),
+            StorageClientImpl::new_for_test(1, table_file_map, "http://localhost:26380", true),
             file_name.to_string(),
         )
     }
@@ -346,7 +355,7 @@ mod tests {
         file_path.push_str(file_name);
         table_file_map.insert(0, file_name.to_string());
 
-        StorageClientImpl::new_for_test(1, table_file_map, "http://localhost:26380")
+        StorageClientImpl::new_for_test(1, table_file_map, "http://localhost:26380", false)
     }
 
     #[test]

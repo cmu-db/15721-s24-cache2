@@ -141,7 +141,7 @@ fn load_gen_skewed(table_ids: Vec<TableId>) -> Vec<StorageRequest> {
 }
 
 fn setup_client(table_file_map: HashMap<TableId, String>, server_url: &str) -> StorageClientImpl {
-    StorageClientImpl::new_for_test(1, table_file_map, server_url)
+    StorageClientImpl::new_for_test(1, table_file_map, server_url, false)
 }
 
 fn setup_clients(
@@ -155,6 +155,7 @@ fn setup_clients(
             i as usize,
             table_file_map.clone(),
             server_url,
+            false,
         )) as Box<dyn StorageClient>;
         clients.push(client);
     }
