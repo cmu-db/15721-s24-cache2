@@ -14,6 +14,10 @@ fn setup_logger() -> Result<(), fern::InitError> {
         .level(log::LevelFilter::Debug)
         .chain(std::io::stdout())
         .chain(fern::log_file("output.log")?)
+        .filter(move |metadata| {
+            // Exclude specific debug logs from hyper::proto::h1::io
+            !(metadata.target() == "hyper::proto::h1::io" && metadata.level() == log::Level::Debug)
+        })
         .apply()?;
     Ok(())
 }

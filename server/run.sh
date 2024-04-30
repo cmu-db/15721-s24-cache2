@@ -53,17 +53,23 @@ REDIS_PORT=6379 cargo run --\
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
-  --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6379.log" 2>&1 &
+  --secret-key "$AWS_SECRET_ACCESS_KEY" \
+  --max_size "104857600" \
+  --bucket_size "3" > "${LOG_DIR}/app_6379.log" 2>&1 &
 REDIS_PORT=6380 cargo run --\
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
-  --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6380.log" 2>&1 &
+  --secret-key "$AWS_SECRET_ACCESS_KEY" \
+  --max_size "104857600" \
+  --bucket_size "3" > "${LOG_DIR}/app_6380.log" 2>&1 &
 REDIS_PORT=6381 cargo run --\
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
-  --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6381.log" 2>&1 &
+  --secret-key "$AWS_SECRET_ACCESS_KEY" \
+  --max_size "104857600" \
+  --bucket_size "3" > "${LOG_DIR}/app_6381.log" 2>&1 &
 
 echo "Application servers starting..."
 
