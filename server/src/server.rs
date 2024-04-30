@@ -3,6 +3,7 @@ extern crate log;
 use crate::storage::mock_storage_connector::MockS3StorageConnector;
 use crate::storage::s3_storage_connector::S3StorageConnector;
 use crate::storage::storage_connector::StorageConnector;
+use crate::util::hash;
 use rocket::State;
 use rocket::{get, post, routes, Rocket};
 use std::path::PathBuf;
@@ -24,12 +25,16 @@ async fn cache_stats(cache: &State<Arc<ConcurrentDiskCache>>) -> String {
 async fn get_file(
     uid: PathBuf,
     cache: &State<Arc<ConcurrentDiskCache>>,
-    s3_connector: &State<Arc<dyn StorageConnector + Send + Sync>>,
+    s3_connectors: &State<Vec<Arc<dyn StorageConnector + Send + Sync>>>,
 ) -> cache::GetFileResult {
+    let uid_str = uid.to_string_lossy().to_string(); // Convert PathBuf to String correctly
+    let index = hash(&uid_str) % s3_connectors.len(); // Use the converted string
+    let s3_connector = &s3_connectors[index];
+
     cache
         .inner()
         .clone()
-        .get_file(uid, s3_connector.inner().clone())
+        .get_file(PathBuf::from(uid_str), s3_connector.clone()) // Use PathBuf from string
         .await
 }
 
@@ -41,7 +46,7 @@ async fn clear(cache: &State<Arc<ConcurrentDiskCache>>) -> String {
 
 pub struct ServerNode {
     pub cache_manager: Arc<ConcurrentDiskCache>,
-    pub s3_connector: Arc<dyn StorageConnector + Send + Sync>,
+    pub s3_connectors: Vec<Arc<dyn StorageConnector + Send + Sync>>,
     config: ServerConfig,
 }
 
@@ -59,22 +64,25 @@ pub struct ServerConfig {
 
 impl ServerNode {
     pub fn new(config: ServerConfig) -> Self {
-        let s3_connector: Arc<dyn StorageConnector + Send + Sync> =
-            if config.use_mock_s3_endpoint.is_some() {
-                println!("Using Mock S3 Storage Connector.");
-                Arc::new(MockS3StorageConnector::new(
-                    config.use_mock_s3_endpoint.clone().unwrap(),
-                ))
-            } else {
-                println!("Using Real S3 Storage Connector.");
-                // [TODO] check if they has some value
-                Arc::new(S3StorageConnector::new(
-                    config.bucket.clone().unwrap(),
-                    config.region_name.clone().unwrap(),
-                    config.access_key.clone().unwrap(),
-                    config.secret_key.clone().unwrap(),
-                ))
-            };
+        let mut s3_connectors = Vec::new();
+        for _ in 0..config.bucket_size {
+            let s3_connector: Arc<dyn StorageConnector + Send + Sync> =
+                if config.use_mock_s3_endpoint.is_some() {
+                    println!("Using Mock S3 Storage Connector.");
+                    Arc::new(MockS3StorageConnector::new(
+                        config.use_mock_s3_endpoint.clone().unwrap(),
+                    ))
+                } else {
+                    println!("Using Real S3 Storage Connector.");
+                    Arc::new(S3StorageConnector::new(
+                        config.bucket.clone().unwrap(),
+                        config.region_name.clone().unwrap(),
+                        config.access_key.clone().unwrap(),
+                        config.secret_key.clone().unwrap(),
+                    ))
+                };
+            s3_connectors.push(s3_connector);
+        }
 
         let cache_manager = Arc::new(ConcurrentDiskCache::new(
             PathBuf::from(&config.cache_dir),
@@ -85,14 +93,14 @@ impl ServerNode {
         ));
         ServerNode {
             cache_manager,
-            s3_connector,
+            s3_connectors,
             config,
         }
     }
     pub fn build(&self) -> Rocket<rocket::Build> {
         let rocket_port = cache::PORT_OFFSET_TO_WEB_SERVER + self.config.redis_port;
         let cache_state = self.cache_manager.clone();
-        let s3_connector_state = self.s3_connector.clone();
+        let s3_connector_state = self.s3_connectors.clone(); // Now cloning the vector of connectors
         rocket::build()
             .configure(rocket::Config::figment().merge(("port", rocket_port)))
             .manage(cache_state)
