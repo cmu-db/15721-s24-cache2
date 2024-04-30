@@ -14,6 +14,10 @@ fn setup_logger() -> Result<(), fern::InitError> {
         .level(log::LevelFilter::Debug)
         .chain(std::io::stdout())
         .chain(fern::log_file("output.log")?)
+        .filter(move |metadata| {
+            // Exclude specific debug logs from hyper::proto::h1::io
+            !(metadata.target() == "hyper::proto::h1::io" && metadata.level() == log::Level::Debug)
+        })
         .apply()?;
     Ok(())
 }
@@ -68,6 +72,20 @@ async fn main() -> Result<(), rocket::Error> {
                 .takes_value(true)
                 .help("AWS secret access key"),
         )
+        .arg(
+            Arg::with_name("max_size")
+                .long("max-size")
+                .takes_value(true)
+                .default_value("192")
+                .help("Maximum cache size in megabytes"),
+        )
+        .arg(
+            Arg::with_name("bucket_size")
+                .long("bucket-size")
+                .takes_value(true)
+                .default_value("3")
+                .help("Bucket size for cache management"),
+        )
         .get_matches();
     let _ = setup_logger();
     let _ = std::fs::create_dir_all("/data/cache");
@@ -86,6 +104,16 @@ async fn main() -> Result<(), rocket::Error> {
     let region_name = matches.value_of("region").unwrap_or("us-east-1");
     let access_key = matches.value_of("access_key").unwrap_or_default();
     let secret_key = matches.value_of("secret_key").unwrap_or_default();
+    let max_size = matches
+        .value_of("max_size")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap(); // Bytes
+    let bucket_size = matches
+        .value_of("bucket_size")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
     let config = if use_mock_s3 {
         ServerConfig {
             server_ip,
@@ -96,6 +124,8 @@ async fn main() -> Result<(), rocket::Error> {
             access_key: Some(String::from(access_key)),
             secret_key: Some(String::from(secret_key)),
             use_mock_s3_endpoint: Some(String::from(s3_endpoint)),
+            max_size,
+            bucket_size,
         }
     } else {
         ServerConfig {
@@ -107,6 +137,8 @@ async fn main() -> Result<(), rocket::Error> {
             access_key: Some(String::from(access_key)),
             secret_key: Some(String::from(secret_key)),
             use_mock_s3_endpoint: None,
+            max_size,
+            bucket_size,
         }
     };
     let server_node = ServerNode::new(config);

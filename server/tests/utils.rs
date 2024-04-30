@@ -12,6 +12,8 @@ pub fn get_server_config_mocks3(redis_port: u16) -> ServerConfig {
         region_name: None,
         access_key: None,
         secret_key: None,
+        max_size: 192,
+        bucket_size: 3,
     }
 }
 
@@ -29,6 +31,8 @@ pub fn get_server_config_s3(
         region_name: Some("us-east-1".into()),
         access_key: Some(aws_access_key),
         secret_key: Some(aws_secret_key),
+        max_size: 192,
+        bucket_size: 3,
     }
 }
 

@@ -22,7 +22,7 @@ impl StorageConnector for MockS3StorageConnector {
         &self,
         file_name: &str,
         cache_path: &PathBuf,
-    ) -> IoResult<PathBuf> {
+    ) -> IoResult<(PathBuf, u64)> {
         let s3_file_url = format!("{}/{}", self.s3_endpoint, file_name);
         let response = reqwest::get(&s3_file_url)
             .await
@@ -37,15 +37,17 @@ impl StorageConnector for MockS3StorageConnector {
 
         let cache_file_path = cache_path.join(file_name);
         let mut file = File::create(&cache_file_path).await?;
-
+        let mut file_size = 0u64;
         // Stream the response body directly to the file
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
             let data = chunk.map_err(|e| io_error_from_reqwest(e))?;
+            file_size += data.len() as u64;
             file.write_all(&data).await?;
         }
+        file.flush().await?;
 
-        Ok(Path::new("").join(file_name))
+        Ok((Path::new("").join(file_name), file_size))
     }
 }
 
