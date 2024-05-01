@@ -1,4 +1,4 @@
-use istziio_client::client_api::{StorageClient, StorageRequest, TableId};
+use istziio_client::client_api::{DataRequest, StorageClient, StorageRequest, TableId};
 use istziio_client::storage_client::StorageClientImpl;
 use std::collections::HashMap;
 use std::path::Path;
@@ -65,8 +65,8 @@ async fn parallel_load_run(clients: Vec<Box<dyn StorageClient>>, requests: Vec<S
             let client_start = Instant::now();
             let req = &requests[client_id];
             // for req in &requests {
-            let table_id = match req {
-                StorageRequest::Table(id) => id,
+            let table_id = match req.data_request() {
+                DataRequest::Table(id) => id,
                 _ => panic!("Invalid request type"),
             };
             println!(
@@ -101,8 +101,8 @@ async fn load_run(client: &dyn StorageClient, requests: Vec<StorageRequest>) {
     println!("------------Start running workload [SEQUENTIALLY]!------------");
     let start = Instant::now();
     for req in requests {
-        let id = match req {
-            StorageRequest::Table(id) => id,
+        let id = match req.data_request() {
+            DataRequest::Table(id) => id.to_owned(),
             _ => panic!("Invalid request type"),
         };
         println!("Requesting data for table {:?}", id);
@@ -118,8 +118,8 @@ async fn load_run(client: &dyn StorageClient, requests: Vec<StorageRequest>) {
 // Generate a load of requests for all tables at once
 fn load_gen_allonce(table_ids: Vec<TableId>) -> Vec<StorageRequest> {
     let mut requests = Vec::new();
-    for table_id in table_ids {
-        requests.push(StorageRequest::Table(table_id));
+    for (req_id, table_id) in table_ids.into_iter().enumerate() {
+        requests.push(StorageRequest::new(req_id, DataRequest::Table(table_id)));
     }
     requests
 }
@@ -130,12 +130,15 @@ fn load_gen_allonce(table_ids: Vec<TableId>) -> Vec<StorageRequest> {
 fn load_gen_skewed(table_ids: Vec<TableId>) -> Vec<StorageRequest> {
     // read a random table id twice, and a random table id zero times
     let mut requests = Vec::new();
-    for table_id in &table_ids {
-        requests.push(StorageRequest::Table(table_id.clone()));
+    for (req_id, table_id) in table_ids.iter().enumerate() {
+        requests.push(StorageRequest::new(req_id, DataRequest::Table(*table_id)));
     }
     // remove last element
     requests.pop();
-    requests.push(StorageRequest::Table(table_ids[0]));
+    requests.push(StorageRequest::new(
+        table_ids.len(),
+        DataRequest::Table(table_ids[0]),
+    ));
 
     requests
 }
@@ -152,7 +155,7 @@ fn setup_clients(
     let mut clients = Vec::new();
     for i in 0..num_clients {
         let client = Box::new(StorageClientImpl::new_for_test(
-            i as usize,
+            i,
             table_file_map.clone(),
             server_url,
             false,
