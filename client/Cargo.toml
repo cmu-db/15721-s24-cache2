@@ -12,7 +12,8 @@ readme = "README.md"
 include = [
     "src/client_api.rs",
     "src/storage_client.rs",
-    "src/lib.rs"
+    "src/lib.rs",
+    "src/benchmark.rs"
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -29,3 +30,7 @@ env_logger = "0.11.1"
 async-trait = "0.1"
 rocket = { version = "0.5.0", features = ["json"] }
 reqwest = { version = "0.11", features = ["stream", "json"] }
+
+[[bin]]
+name = "benchmark"
+path = "src/benchmark.rs"

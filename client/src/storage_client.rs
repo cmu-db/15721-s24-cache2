@@ -61,7 +61,8 @@ impl StorageClientImpl {
     }
 
     pub fn local_cache_path() -> String {
-        String::from("./istziio_client_cache/")
+        let home = std::env::var("HOME").unwrap();
+        String::from(home + "/istziio_client_cache/")
     }
 
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
@@ -212,11 +213,12 @@ impl StorageClientImpl {
         // print curr time
         let start = std::time::Instant::now();
         local_path.push_str(file_path);
-        print!(
+        println!(
             "read_pqt_all_sync Reading from local_path: {:?}",
             local_path
         );
         let file = File::open(local_path)?;
+        println!("File opened");
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
         let mut result: Vec<RecordBatch> = Vec::new();
