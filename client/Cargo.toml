@@ -1,6 +1,6 @@
 [package]
 name = "istziio-client"
-version = "0.1.7"
+version = "0.1.11"
 edition = "2018"
 authors = ["Shuning Lin <86640627+ScottLinnn@users.noreply.github.com>", "J-HowHuang <howardhuang2001@gmail.com>"]
 description = "Client application for ISTZIIO OLAP database I/O cache service"
@@ -12,7 +12,8 @@ readme = "README.md"
 include = [
     "src/client_api.rs",
     "src/storage_client.rs",
-    "src/lib.rs"
+    "src/lib.rs",
+    "src/benchmark.rs"
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -29,7 +30,6 @@ env_logger = "0.11.1"
 async-trait = "0.1"
 rocket = { version = "0.5.0", features = ["json"] }
 reqwest = { version = "0.11", features = ["stream", "json"] }
-
 
 [[bin]]
 name = "benchmark"
