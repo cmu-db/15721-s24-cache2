@@ -10,7 +10,7 @@ use std::path::Path;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task;
 
-use crate::client_api;
+use crate::client_api::{self, DataRequest};
 
 /// Clien for fetching data from I/O service
 pub struct StorageClientImpl {
@@ -56,7 +56,7 @@ impl StorageClientImpl {
             table_file_map: map,
             server_url: server_url.to_string(),
             local_cache: cache,
-            use_local_cache: use_local_cache,
+            use_local_cache,
         }
     }
 
@@ -147,7 +147,7 @@ impl StorageClientImpl {
         let trimmed_path: Vec<&str> = file_path.split('/').collect();
         let file_name = trimmed_path.last().ok_or_else(|| {
             // Return an error if the last element does not exist
-            return anyhow::Error::msg("File path is empty");
+            anyhow::Error::msg("File path is empty")
         })?;
 
         let url = format!("{}/s3/{}", self.server_url, file_name);
@@ -193,11 +193,11 @@ impl StorageClientImpl {
         Ok(())
     }
 
-    async fn read_pqt_all(file_path: &String, sender: Sender<RecordBatch>) -> Result<()> {
+    async fn read_pqt_all(file_path: &str, sender: Sender<RecordBatch>) -> Result<()> {
         // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
         let mut local_path = StorageClientImpl::local_cache_path();
 
-        local_path.push_str(&file_path);
+        local_path.push_str(file_path);
         let file = File::open(local_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
@@ -207,12 +207,12 @@ impl StorageClientImpl {
         Ok(())
     }
 
-    async fn read_pqt_all_sync(file_path: &String) -> Result<Vec<RecordBatch>> {
+    async fn read_pqt_all_sync(file_path: &str) -> Result<Vec<RecordBatch>> {
         // If the file exists, open it and read the data. Otherwise, call fetch_file to get the file
         let mut local_path = StorageClientImpl::local_cache_path();
         // print curr time
         let start = std::time::Instant::now();
-        local_path.push_str(&file_path);
+        local_path.push_str(file_path);
         print!(
             "read_pqt_all_sync Reading from local_path: {:?}",
             local_path
@@ -233,26 +233,26 @@ impl StorageClientImpl {
 
 #[async_trait::async_trait]
 impl StorageClient for StorageClientImpl {
-    async fn request_data(&self, _request: StorageRequest) -> Result<Receiver<RecordBatch>> {
-        match _request {
-            StorageRequest::Table(table_id) => self.read_entire_table(table_id).await,
+    async fn request_data(&self, request: StorageRequest) -> Result<Receiver<RecordBatch>> {
+        match request.data_request() {
+            DataRequest::Table(table_id) => self.read_entire_table(*table_id).await,
 
-            StorageRequest::Columns(_table_id, _column_ids) => {
+            DataRequest::Columns(_table_id, _column_ids) => {
                 unimplemented!("Column request is not supported yet")
             }
-            StorageRequest::Tuple(_record_ids) => {
+            DataRequest::Tuple(_record_ids) => {
                 unimplemented!("Tuple request is not supported yet")
             }
         }
     }
 
-    async fn request_data_sync(&self, _request: StorageRequest) -> Result<Vec<RecordBatch>> {
-        match _request {
-            StorageRequest::Table(table_id) => self.read_entire_table_sync(table_id).await,
-            StorageRequest::Columns(_table_id, _column_ids) => {
+    async fn request_data_sync(&self, request: StorageRequest) -> Result<Vec<RecordBatch>> {
+        match request.data_request() {
+            DataRequest::Table(table_id) => self.read_entire_table_sync(*table_id).await,
+            DataRequest::Columns(_table_id, _column_ids) => {
                 unimplemented!("Column request is not supported yet")
             }
-            StorageRequest::Tuple(_record_ids) => {
+            DataRequest::Tuple(_record_ids) => {
                 unimplemented!("Tuple request is not supported yet")
             }
         }
@@ -280,7 +280,7 @@ mod tests {
             Field::new("name", DataType::Utf8, false),
         ]);
         let row_num = 10;
-        let ids_vec = (1..=row_num as i32).collect::<Vec<i32>>();
+        let ids_vec = (1..=row_num).collect::<Vec<i32>>();
 
         // names is a vector of row_num names "testrow_{id}", each element is a &str
         let names_vec = (1..=row_num)
@@ -288,9 +288,7 @@ mod tests {
             .collect::<Vec<String>>();
         let ids = Int32Array::from(ids_vec);
         let names = StringArray::from(names_vec);
-        let batch =
-            RecordBatch::try_new(Arc::new(schema), vec![Arc::new(ids), Arc::new(names)]).unwrap();
-        batch
+        RecordBatch::try_new(Arc::new(schema), vec![Arc::new(ids), Arc::new(names)]).unwrap()
     }
 
     fn create_sample_parquet_file(file_name: &str, row_num: usize) -> anyhow::Result<()> {
@@ -308,7 +306,7 @@ mod tests {
         }
         ";
         let schema = Arc::new(parse_message_type(message_type).unwrap());
-        let file = fs::File::create(&path).unwrap();
+        let file = fs::File::create(path).unwrap();
 
         let props: WriterProperties = WriterProperties::builder().build();
         let mut writer = SerializedFileWriter::new(file, schema, Arc::new(props))?;
@@ -369,7 +367,7 @@ mod tests {
         file_path.push_str(file_name);
         table_file_map.insert(0, file_name.to_string());
         // Create a sample parquet file
-        create_sample_parquet_file(file_name, 1000_000).unwrap();
+        create_sample_parquet_file(file_name, 1_000_000).unwrap();
         (
             StorageClientImpl::new_for_test(1, table_file_map, "http://localhost:26380", true),
             file_name.to_string(),
@@ -413,7 +411,7 @@ mod tests {
             let res = client.read_entire_table_sync(0).await;
             assert!(res.is_ok());
             let record_batch = res.unwrap();
-            let rb = record_batch.get(0);
+            let rb = record_batch.first();
             assert!(rb.is_some());
             let sample_rb = create_sample_rb();
             assert_eq!(rb.unwrap().clone(), sample_rb);
@@ -448,7 +446,10 @@ mod tests {
         let (client, _file_name) = setup_local();
         let rt: Runtime = Runtime::new().unwrap();
         rt.block_on(async {
-            let mut receiver = client.request_data(StorageRequest::Table(0)).await.unwrap();
+            let mut receiver = client
+                .request_data(StorageRequest::new(0, DataRequest::Table(0)))
+                .await
+                .unwrap();
             // Wait for the channel to be ready
             sleep(Duration::from_secs(1)).await;
             // Assert that the channel is ready
@@ -467,7 +468,10 @@ mod tests {
         let (client, _file_name) = setup_local_large();
         let rt: Runtime = Runtime::new().unwrap();
         rt.block_on(async {
-            let mut receiver = client.request_data(StorageRequest::Table(0)).await.unwrap();
+            let mut receiver = client
+                .request_data(StorageRequest::new(0, DataRequest::Table(0)))
+                .await
+                .unwrap();
             // Wait for the channel to be ready
             sleep(Duration::from_secs(1)).await;
             // Assert that the channel is ready
@@ -476,7 +480,7 @@ mod tests {
                 total_num_rows += rb.num_rows();
             }
 
-            assert_eq!(total_num_rows, 1000_000);
+            assert_eq!(total_num_rows, 1_000_000);
             // println!("RecordBatch: {:?}", record_batch);
             // println!("SampleRecordBatch: {:?}", sample_rb);
         });
@@ -488,7 +492,10 @@ mod tests {
         let client = setup_remote();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            let mut receiver = client.request_data(StorageRequest::Table(0)).await.unwrap();
+            let mut receiver = client
+                .request_data(StorageRequest::new(0, DataRequest::Table(0)))
+                .await
+                .unwrap();
             // Wait for the channel to be ready
             sleep(Duration::from_secs(1)).await;
             // Assert that the channel is ready
@@ -507,10 +514,12 @@ mod tests {
         let (client, _file_name) = setup_local();
         let rt: Runtime = Runtime::new().unwrap();
         rt.block_on(async {
-            let res = client.request_data_sync(StorageRequest::Table(0)).await;
+            let res = client
+                .request_data_sync(StorageRequest::new(0, DataRequest::Table(0)))
+                .await;
             assert!(res.is_ok());
             let record_batch = res.unwrap();
-            let rb = record_batch.get(0);
+            let rb = record_batch.first();
             assert!(rb.is_some());
             let sample_rb = create_sample_rb();
             assert_eq!(rb.unwrap().clone(), sample_rb);

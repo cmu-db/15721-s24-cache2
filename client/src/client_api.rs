@@ -9,13 +9,40 @@ pub type TableId = u64;
 pub type ColumnId = u64;
 pub type RecordId = u64;
 
-/// [`StorageRequest`] specifies the requests that the execution engine might issue to
+/// Id type for the request. Should be unique among all requests.
+pub type RequestId = usize;
+
+/// [`StorageRequest`] is the request that the execution engine sends to the storage node.
+#[derive(Clone)]
+pub struct StorageRequest {
+    request_id: RequestId,
+    data_request: DataRequest,
+}
+
+impl StorageRequest {
+    pub fn new(request_id: RequestId, data_request: DataRequest) -> Self {
+        Self {
+            request_id,
+            data_request,
+        }
+    }
+
+    pub fn request_id(&self) -> RequestId {
+        self.request_id
+    }
+
+    pub fn data_request(&self) -> &DataRequest {
+        &self.data_request
+    }
+}
+
+/// [`DataRequest`] specifies the requests that the execution engine might issue to
 /// the storage node.
 ///
 /// Currently we assume the execution engine only requests the whole table/column. We may
 /// add `std::ops::RangeBounds` later to support range query from the execution engine.
 #[derive(Clone)]
-pub enum StorageRequest {
+pub enum DataRequest {
     /// Requests a whole table from the underlying storage.
     Table(TableId),
     /// Requests one or more columns from the underlying storage.
