@@ -187,7 +187,7 @@ impl StorageClientImpl {
         println!("parquet written to {}", file_path);
 
         if dup_id > 0 {
-            Ok(file_name.to_string() + dup_id.to_string().as_str())
+            Ok(file_name.to_string() + "_" + dup_id.to_string().as_str())
         } else {
             Ok(file_name.to_string())
         }
@@ -198,10 +198,7 @@ impl StorageClientImpl {
         let mut local_path = StorageClientImpl::local_cache_path();
 
         local_path.push_str(file_path);
-        println!(
-            "read_pqt_all_sync Reading from local_path: {:?}",
-            local_path
-        );
+        println!("read_pqt_all Reading from local_path: {:?}", local_path);
         let file = File::open(local_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
