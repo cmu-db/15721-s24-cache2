@@ -198,6 +198,10 @@ impl StorageClientImpl {
         let mut local_path = StorageClientImpl::local_cache_path();
 
         local_path.push_str(file_path);
+        println!(
+            "read_pqt_all_sync Reading from local_path: {:?}",
+            local_path
+        );
         let file = File::open(local_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
