@@ -185,6 +185,7 @@ impl StorageClientImpl {
         file.write_all(&file_contents)?;
         println!("parquet written to {}", file_path);
 
+
         if dup_id > 0 {
             Ok(file_name.to_string() + dup_id.to_string().as_str())
         } else {
