@@ -53,7 +53,8 @@ sleep 5
 echo "Redis cluster created."
 
 # Starting the application servers
-REDIS_PORT=6379 cargo run --\
+REDIS_PORT=6379 cargo run --bin istziio_server_node --\
+  --server-ip $SERVER_IP \
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
