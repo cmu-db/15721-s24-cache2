@@ -67,12 +67,12 @@ impl StorageClientImpl {
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
     pub async fn read_entire_table(&self, table: TableId) -> Result<Receiver<RecordBatch>> {
         // let mut local_path = self.local_cache.clone();
-        let file_path = self.get_path(table)?;
+        let mut file_path = self.get_path(table)?;
         // local_path.push_str(&file_path);
 
         if !self.use_local_cache {
             let start = std::time::Instant::now();
-            let _ = self.fetch_file(&file_path).await;
+            file_path = self.fetch_file(&file_path).await.unwrap();
             let duration = start.elapsed();
             println!("Time used to fetch file: {:?}", duration);
         }
@@ -89,12 +89,12 @@ impl StorageClientImpl {
 
     pub async fn read_entire_table_sync(&self, table: TableId) -> Result<Vec<RecordBatch>> {
         // let mut local_path = self.local_cache.clone();
-        let file_path = self.get_path(table)?;
+        let mut file_path = self.get_path(table)?;
         // local_path.push_str(&file_path);
 
         if !self.use_local_cache {
             let start = std::time::Instant::now();
-            let _ = self.fetch_file(&file_path).await;
+            file_path = self.fetch_file(&file_path).await.unwrap();
             let duration = start.elapsed();
             println!("Time used to fetch file: {:?}", duration);
         }
@@ -142,7 +142,7 @@ impl StorageClientImpl {
     }
 
     /// Fetch file from I/O server
-    async fn fetch_file(&self, file_path: &str) -> Result<()> {
+    async fn fetch_file(&self, file_path: &str) -> Result<String> {
         // First, trim the path to leave only the file name after the last '/'
         let trimmed_path: Vec<&str> = file_path.split('/').collect();
         let file_name = trimmed_path.last().ok_or_else(|| {
@@ -169,28 +169,27 @@ impl StorageClientImpl {
 
         let mut file_path = self.local_cache.clone();
 
+        // If file_path exists, append a auto increaseing number to the file name
+        // and re-detect duplication, until a unique file name is found
         file_path.push_str(file_name);
+        let mut dup_id = 0;
+        while Path::new(&file_path).exists() {
+            dup_id += 1;
+            file_path = self.local_cache.clone();
+            file_path.push_str(file_name);
+            file_path.push_str(&format!("_{}", dup_id));
+        }
+
         let mut file = File::create(&file_path)?;
 
         file.write_all(&file_contents)?;
         println!("parquet written to {}", file_path);
-        // STREAM VERSION CODE - NOT IN USE!
 
-        // let mut file_path = self.local_cache.clone();
-
-        // file_path.push_str(file_name);
-        // let mut file = File::create(file_path)?;
-
-        // let mut stream = response.bytes_stream();
-        // while let Some(chunk) = stream.next().await {
-        //     let data = chunk?;
-        //     file.write_all(&data)?;
-        // }
-
-        // let duration = start.elapsed();
-        // println!("Time used to receive stream: {:?}", duration);
-
-        Ok(())
+        if dup_id > 0 {
+            Ok(file_name.to_string() + dup_id.to_string().as_str())
+        } else {
+            Ok(file_name.to_string())
+        }
     }
 
     async fn read_pqt_all(file_path: &String, sender: Sender<RecordBatch>) -> Result<()> {
@@ -213,10 +212,10 @@ impl StorageClientImpl {
         // print curr time
         let start = std::time::Instant::now();
         local_path.push_str(&file_path);
-        print!(
-            "read_pqt_all_sync Reading from local_path: {:?}",
-            local_path
-        );
+        // println!(
+        //     "read_pqt_all_sync Reading from local_path: {:?}",
+        //     local_path
+        // );
         let file = File::open(local_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
