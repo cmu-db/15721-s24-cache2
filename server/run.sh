@@ -24,6 +24,8 @@ mkdir -p "${LOG_DIR}"
 # Server root directory
 SERVER_ROOT="${SERVER_ROOT:-"."}" 
 SERVER_IP="${SERVER_IP:-"localhost"}" 
+CACHE_CAPACITY="${CACHE_CAPACITY:-"1073741824"}" 
+CACHE_BUCKET_SIZE="${CACHE_BUCKET_SIZE:-"3"}" 
 
 # Names or keywords to identify your processes
 PROCESS_NAMES=("istziio_server_node" "redis-serveredis-serverr")
@@ -55,19 +57,25 @@ REDIS_PORT=6379 cargo run --bin istziio_server_node --\
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
-  --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6379.log" 2>&1 &
+  --secret-key "$AWS_SECRET_ACCESS_KEY" \
+  --max-size "$CACHE_CAPACITY" \
+  --bucket-size "$CACHE_BUCKET_SIZE" > "${LOG_DIR}/app_6379.log" 2>&1 &
 REDIS_PORT=6380 cargo run --bin istziio_server_node --\
   --server-ip $SERVER_IP \
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
-  --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6380.log" 2>&1 &
+  --secret-key "$AWS_SECRET_ACCESS_KEY" \
+  --max-size "$CACHE_CAPACITY" \
+  --bucket-size "$CACHE_BUCKET_SIZE" > "${LOG_DIR}/app_6380.log" 2>&1 &
 REDIS_PORT=6381 cargo run --bin istziio_server_node --\
   --server-ip $SERVER_IP \
   --bucket "istziio-bucket" \
   --region "us-east-1" \
   --access-key "$AWS_ACCESS_KEY_ID" \
-  --secret-key "$AWS_SECRET_ACCESS_KEY" > "${LOG_DIR}/app_6381.log" 2>&1 &
+  --secret-key "$AWS_SECRET_ACCESS_KEY" \
+  --max-size "$CACHE_CAPACITY" \
+  --bucket-size "$CACHE_BUCKET_SIZE" > "${LOG_DIR}/app_6381.log" 2>&1 &
 
 echo "Application servers starting..."
 
