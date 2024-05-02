@@ -167,6 +167,11 @@ impl StorageClientImpl {
 
         // Send a GET request and await the response
         let response = reqwest::get(url).await?;
+        println!(
+            "Response remote_addr: {:?}, Response status: {:?}",
+            response.remote_addr().unwrap().to_string(),
+            response.status()
+        );
 
         // Ensure the request was successful and extract the response body as a String
         let file_contents = response.bytes().await?;
