@@ -195,6 +195,7 @@ impl StorageClientImpl {
             file_name.to_owned().to_string(),
             response.remote_addr().unwrap().to_string(),
         );
+        println!("File server map: {:?}", self.file_server_map);
 
         // Ensure the request was successful and extract the response body as a String
         let file_contents = response.bytes().await?;
