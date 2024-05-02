@@ -175,7 +175,7 @@ impl StorageClientImpl {
 
         // print elapse time
         let duration = start.elapsed();
-        println!("Time used to wait for response: {:?}", duration);
+        println!("Time used to wait for server response: {:?}", duration);
 
         let mut file_path = self.local_cache.clone();
 
@@ -208,12 +208,18 @@ impl StorageClientImpl {
 
         local_path.push_str(file_path);
         println!("read_pqt_all Reading from local_path: {:?}", local_path);
+        let start = std::time::Instant::now();
         let file = File::open(local_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
         while let Some(Ok(rb)) = reader.next() {
             sender.send(rb).await?;
         }
+        let duration = start.elapsed();
+        println!(
+            "read_pqt_all: Time used to read from parquet: {:?}",
+            duration
+        );
         Ok(())
     }
 
@@ -228,7 +234,6 @@ impl StorageClientImpl {
             local_path
         );
         let file = File::open(local_path)?;
-        println!("File opened");
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let mut reader = builder.build()?;
         let mut result: Vec<RecordBatch> = Vec::new();
@@ -237,7 +242,10 @@ impl StorageClientImpl {
         }
         // print elapse
         let duration = start.elapsed();
-        println!("Time used to read from parquet: {:?}", duration);
+        println!(
+            "read_pqt_all_sync: Time used to read from parquet: {:?}",
+            duration
+        );
         Ok(result)
     }
 }
