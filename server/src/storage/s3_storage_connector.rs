@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use aws_sdk_s3::{Client, Config, Credentials, Region};
+use chrono::{DateTime, Utc};
 use log::debug;
 use rocket::futures::StreamExt;
 use std::io;
@@ -53,6 +54,12 @@ impl StorageConnector for S3StorageConnector {
         // Assemble the object key with the file name
         let object_key = file_name;
         let start = Instant::now();
+        let start_time: DateTime<Utc> = Utc::now(); // Record start time
+        debug!(
+            "Start fetching object '{}' at {}",
+            file_name,
+            start_time.to_rfc3339()
+        );
         // Attempt to fetch the object from S3
         let result = self
             .client
@@ -77,11 +84,8 @@ impl StorageConnector for S3StorageConnector {
                 }
                 file.flush().await?;
                 let duration = start.elapsed();
-
-                debug!(
-                    "Object '{}' fetched and cached successfully with size: {} bytes in {:?}",
-                    file_name, file_size, duration
-                );
+                let end_time: DateTime<Utc> = Utc::now();
+                debug!("End fetching object '{}'. Started at: {}, Ended at: {}, Duration: {:?}, File size: {} bytes.", file_name, start_time.to_rfc3339(), end_time.to_rfc3339(), duration, file_size);
                 Ok((Path::new("").join(file_name), file_size))
             }
             Err(aws_sdk_s3::SdkError::ServiceError { err, .. }) => {

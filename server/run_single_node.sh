@@ -1,6 +1,9 @@
 #!/bin/bash
 # The ports where Redis nodes are running
-ports=(6379 6380 6381)
+ports=(6379)
+NODE_1_IP="${NODE_1_IP:-"localhost"}":6379
+NODE_2_IP="${NODE_2_IP:-"localhost"}":6379
+NODE_3_IP="${NODE_3_IP:-"localhost"}":6379
 
 # Loop over each port and flush all databases then perform a hard reset on the cluster
 for port in "${ports[@]}"
@@ -23,7 +26,6 @@ mkdir -p "${LOG_DIR}"
 
 # Server root directory
 SERVER_ROOT="${SERVER_ROOT:-"."}" 
-SERVER_IP="${SERVER_IP:-"localhost"}" 
 CACHE_CAPACITY="${CACHE_CAPACITY:-"1073741824"}" 
 CACHE_BUCKET_SIZE="${CACHE_BUCKET_SIZE:-"3"}" 
 
@@ -38,17 +40,16 @@ done
 echo "Existing processes killed, if any were running."
 
 # Start Redis instances
-redis-server $SERVER_ROOT/redis.conf --port 6379 --cluster-config-file node1.conf& 
-redis-server $SERVER_ROOT/redis.conf --port 6380 --cluster-config-file node2.conf&
-redis-server $SERVER_ROOT/redis.conf --port 6381 --cluster-config-file node3.conf&
+redis-server $SERVER_ROOT/redis.conf --port 6379 --cluster-config-file node1.conf&
 
 echo "Redis servers starting..."
 
 sleep 5
 
 # Creating the cluster
-redis-cli --cluster create $SERVER_IP:6379 $SERVER_IP:6380 $SERVER_IP:6381 --cluster-replicas 0 --cluster-yes
+redis-cli --cluster create $NODE_1_IP $NODE_2_IP $NODE_3_IP --cluster-replicas 0 --cluster-yes
 
+sleep 5
 echo "Redis cluster created."
 
 # Starting the application servers
@@ -60,22 +61,6 @@ REDIS_PORT=6379 cargo run --bin istziio_server_node --\
   --secret-key "$AWS_SECRET_ACCESS_KEY" \
   --max-size "$CACHE_CAPACITY" \
   --bucket-size "$CACHE_BUCKET_SIZE" > "${LOG_DIR}/app_6379.log" 2>&1 &
-REDIS_PORT=6380 cargo run --bin istziio_server_node --\
-  --server-ip $SERVER_IP \
-  --bucket "istziio-bucket" \
-  --region "us-east-1" \
-  --access-key "$AWS_ACCESS_KEY_ID" \
-  --secret-key "$AWS_SECRET_ACCESS_KEY" \
-  --max-size "$CACHE_CAPACITY" \
-  --bucket-size "$CACHE_BUCKET_SIZE" > "${LOG_DIR}/app_6380.log" 2>&1 &
-REDIS_PORT=6381 cargo run --bin istziio_server_node --\
-  --server-ip $SERVER_IP \
-  --bucket "istziio-bucket" \
-  --region "us-east-1" \
-  --access-key "$AWS_ACCESS_KEY_ID" \
-  --secret-key "$AWS_SECRET_ACCESS_KEY" \
-  --max-size "$CACHE_CAPACITY" \
-  --bucket-size "$CACHE_BUCKET_SIZE" > "${LOG_DIR}/app_6381.log" 2>&1 &
 
 echo "Application servers starting..."
 

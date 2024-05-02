@@ -127,10 +127,6 @@ impl RedisServer {
         }
 
         self.slot_to_node_mapping = new_mapping;
-        debug!(
-            "Updated slot-to-node mapping: {:?}",
-            self.slot_to_node_mapping
-        );
         Ok(())
     }
     // Location lookup function that uses the updated mapping

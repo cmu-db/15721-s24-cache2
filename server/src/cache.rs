@@ -1,5 +1,5 @@
 // cache.rs
-use chrono;
+use chrono::{self, DateTime, Utc};
 use log::{debug, info};
 use rocket::{fs::NamedFile, response::Redirect};
 use std::collections::VecDeque;
@@ -64,6 +64,7 @@ impl DiskCache {
         redis_read: &RwLockReadGuard<'_, RedisServer>,
     ) -> GetFileResult {
         let uid_str = uid.into_os_string().into_string().unwrap();
+        let start_time: DateTime<Utc> = Utc::now(); // Human-readable start time
         let mut cache = cache.lock().await;
         let redirect = redis_read.location_lookup(uid_str.clone()).await;
         if let Some((x, p)) = redirect {
@@ -107,10 +108,24 @@ impl DiskCache {
         debug!("get_file: {}", file_name_str);
         cache.update_access(&file_name_str);
         let cache_file_path = cache.cache_dir.join(file_name);
-        match NamedFile::open(cache_file_path).await {
-            Ok(x) => GetFileResult::Hit(x),
-            Err(_) => GetFileResult::NotFoundOnS3(uid_str),
-        }
+        drop(cache);
+        let result = match NamedFile::open(cache_file_path).await {
+            Ok(file) => GetFileResult::Hit(file),
+            Err(_) => GetFileResult::NotFoundOnS3(uid_str.clone()),
+        };
+
+        let end_time: DateTime<Utc> = Utc::now(); // Human-readable end time
+        let duration = end_time - start_time;
+
+        debug!(
+            "Request for {} started at {} and ended at {}, taking {:?}",
+            uid_str.clone(),
+            start_time.to_rfc3339(),
+            end_time.to_rfc3339(),
+            duration
+        );
+
+        result
     }
 
     async fn get_s3_file_to_cache(
@@ -226,7 +241,7 @@ impl ConcurrentDiskCache {
         let result =
             DiskCache::get_file(shard.clone(), uid.into(), connector.clone(), &redis_read).await;
         drop(redis_read);
-        debug!("{}", self.get_stats().await);
+        info!("{}", self.get_stats().await);
         result
     }
 
