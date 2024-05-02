@@ -3,6 +3,7 @@ use arrow::array::RecordBatch;
 
 use client_api::{ColumnId, StorageClient, StorageRequest, TableId};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use rocket::serde::ser;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
@@ -19,6 +20,7 @@ pub struct StorageClientImpl {
     server_url: String,
     local_cache: String,
     use_local_cache: bool,
+    file_server_map: HashMap<String, String>,
 }
 impl StorageClientImpl {
     /// Create a StorageClient instance
@@ -33,6 +35,7 @@ impl StorageClientImpl {
             server_url: server_url.to_string(),
             local_cache: cache,
             use_local_cache: false,
+            file_server_map: HashMap::new(),
         }
     }
 
@@ -57,6 +60,7 @@ impl StorageClientImpl {
             server_url: server_url.to_string(),
             local_cache: cache,
             use_local_cache,
+            file_server_map: HashMap::new(),
         }
     }
 
@@ -66,7 +70,7 @@ impl StorageClientImpl {
 
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
     pub async fn read_entire_table(
-        &self,
+        &mut self,
         table: TableId,
         request_id: usize,
     ) -> Result<Receiver<RecordBatch>> {
@@ -78,7 +82,7 @@ impl StorageClientImpl {
             let start = std::time::Instant::now();
             file_path = self.fetch_file(&file_path, request_id).await.unwrap();
             let duration = start.elapsed();
-            println!("Time used to fetch file: {:?}", duration);
+            // println!("Time used to fetch file: {:?}", duration);
         }
         let (sender, receiver) = channel::<RecordBatch>(1000);
 
@@ -92,7 +96,7 @@ impl StorageClientImpl {
     }
 
     pub async fn read_entire_table_sync(
-        &self,
+        &mut self,
         table: TableId,
         request_id: usize,
     ) -> Result<Vec<RecordBatch>> {
@@ -104,7 +108,7 @@ impl StorageClientImpl {
             let start = std::time::Instant::now();
             file_path = self.fetch_file(&file_path, request_id).await.unwrap();
             let duration = start.elapsed();
-            println!("Time used to fetch file: {:?}", duration);
+            // println!("Time used to fetch file: {:?}", duration);
         }
         Self::read_pqt_all_sync(&file_path).await
     }
@@ -150,7 +154,7 @@ impl StorageClientImpl {
     }
 
     /// Fetch file from I/O server
-    async fn fetch_file(&self, file_path: &str, request_id: usize) -> Result<String> {
+    async fn fetch_file(&mut self, file_path: &str, request_id: usize) -> Result<String> {
         // First, trim the path to leave only the file name after the last '/'
         let trimmed_path: Vec<&str> = file_path.split('/').collect();
         let file_name = trimmed_path.last().ok_or_else(|| {
@@ -158,19 +162,38 @@ impl StorageClientImpl {
             anyhow::Error::msg("File path is empty")
         })?;
 
-        // add request_id as query parameter "rid"
+        // if file in self.file_server_map, use the server in the map
+        // else use the default server_url
+        let mut server_url = self.server_url.clone();
+        if self.file_server_map.contains_key(file_name.to_owned()) {
+            println!(
+                "File {} is in file_server_map, rid:{}",
+                file_name, request_id
+            );
+            server_url = self
+                .file_server_map
+                .get(file_name.to_owned())
+                .unwrap()
+                .clone();
+        }
 
-        let url = format!("{}/s3/{}?rid={}", self.server_url, file_name, request_id);
-        println!("Sending request: {}", url);
+        // add request_id as query parameter "rid"
+        let url = format!("{}/s3/{}?rid={}", server_url, file_name, request_id);
+        println!("Sending request: {}, rid:{}", url, request_id);
 
         let start = std::time::Instant::now();
 
         // Send a GET request and await the response
         let response = reqwest::get(url).await?;
         println!(
-            "Response remote_addr: {:?}, Response status: {:?}",
+            "Request id: {:?}, Response remote_addr: {:?}, Response status: {:?}",
+            request_id,
             response.remote_addr().unwrap().to_string(),
             response.status()
+        );
+        self.file_server_map.insert(
+            file_name.to_owned().to_string(),
+            response.remote_addr().unwrap().to_string(),
         );
 
         // Ensure the request was successful and extract the response body as a String
@@ -180,7 +203,10 @@ impl StorageClientImpl {
 
         // print elapse time
         let duration = start.elapsed();
-        println!("Time used to wait for server response: {:?}", duration);
+        println!(
+            "Time used to wait for server response: {:?}, rid:{}",
+            duration, request_id
+        );
 
         let mut file_path = self.local_cache.clone();
 
@@ -257,7 +283,7 @@ impl StorageClientImpl {
 
 #[async_trait::async_trait]
 impl StorageClient for StorageClientImpl {
-    async fn request_data(&self, request: StorageRequest) -> Result<Receiver<RecordBatch>> {
+    async fn request_data(&mut self, request: StorageRequest) -> Result<Receiver<RecordBatch>> {
         match request.data_request() {
             DataRequest::Table(table_id) => {
                 self.read_entire_table(*table_id, request.request_id())
@@ -273,7 +299,7 @@ impl StorageClient for StorageClientImpl {
         }
     }
 
-    async fn request_data_sync(&self, request: StorageRequest) -> Result<Vec<RecordBatch>> {
+    async fn request_data_sync(&mut self, request: StorageRequest) -> Result<Vec<RecordBatch>> {
         match request.data_request() {
             DataRequest::Table(table_id) => {
                 self.read_entire_table_sync(*table_id, request.request_id())
@@ -416,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_entire_table_local() {
-        let (client, _file_name) = setup_local();
+        let (mut client, _file_name) = setup_local();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let mut receiver = client.read_entire_table(0, 0).await.unwrap();
@@ -435,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_entire_table_local_sync() {
-        let (client, _file_name) = setup_local();
+        let (mut client, _file_name) = setup_local();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let res = client.read_entire_table_sync(0, 0).await;
@@ -453,7 +479,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_entire_table_remote() {
-        let client = setup_remote();
+        let mut client = setup_remote();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let mut receiver = client.read_entire_table(0, 0).await.unwrap();
@@ -473,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_request_data_table_local_simple() {
-        let (client, _file_name) = setup_local();
+        let (mut client, _file_name) = setup_local();
         let rt: Runtime = Runtime::new().unwrap();
         rt.block_on(async {
             let mut receiver = client
@@ -495,7 +521,7 @@ mod tests {
 
     #[test]
     fn test_request_data_table_local_exhaustive() {
-        let (client, _file_name) = setup_local_large();
+        let (mut client, _file_name) = setup_local_large();
         let rt: Runtime = Runtime::new().unwrap();
         rt.block_on(async {
             let mut receiver = client
@@ -519,7 +545,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_request_data_table_remote() {
-        let client = setup_remote();
+        let mut client = setup_remote();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let mut receiver = client
@@ -541,7 +567,7 @@ mod tests {
 
     #[test]
     fn test_request_data_table_local_sync() {
-        let (client, _file_name) = setup_local();
+        let (mut client, _file_name) = setup_local();
         let rt: Runtime = Runtime::new().unwrap();
         rt.block_on(async {
             let res = client

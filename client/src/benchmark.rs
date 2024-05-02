@@ -31,10 +31,10 @@ async fn benchmark_sync() {
     // get SERVER_URL from env var
     let server_url = env::var("SERVER_URL").unwrap();
 
-    let client = setup_client(map.clone(), &server_url);
+    let mut client = setup_client(map.clone(), &server_url);
     let table_ids: Vec<TableId> = map.keys().cloned().collect();
     let load = load_gen_allonce(table_ids.clone());
-    load_run(&client, load).await;
+    load_run(&mut client, load).await;
 }
 
 async fn benchmark_parallel() {
@@ -57,7 +57,7 @@ async fn parallel_load_run(clients: Vec<Box<dyn StorageClient>>, requests: Vec<S
     let (tx, mut rx) = mpsc::channel(32); // Create a channel
 
     // Spawn tasks for each client to send requests
-    for (client_id, client) in clients.into_iter().enumerate() {
+    for (client_id, mut client) in clients.into_iter().enumerate() {
         // let client = clients[client_id];
         let tx = tx.clone();
         let requests = requests.clone();
@@ -97,7 +97,7 @@ async fn parallel_load_run(clients: Vec<Box<dyn StorageClient>>, requests: Vec<S
     println!("Total time used: {:?}", duration);
 }
 
-async fn load_run(client: &dyn StorageClient, requests: Vec<StorageRequest>) {
+async fn load_run(client: &mut dyn StorageClient, requests: Vec<StorageRequest>) {
     println!("------------Start running workload [SEQUENTIALLY]!------------");
     let start = Instant::now();
     for req in requests {

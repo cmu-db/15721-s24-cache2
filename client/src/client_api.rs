@@ -59,8 +59,8 @@ pub enum DataRequest {
 #[async_trait::async_trait]
 pub trait StorageClient: Send + Sync + 'static {
     /// Returns the requested data as a stream.
-    async fn request_data(&self, request: StorageRequest) -> Result<Receiver<RecordBatch>>;
+    async fn request_data(&mut self, request: StorageRequest) -> Result<Receiver<RecordBatch>>;
 
     /// Returns all the requested data as a whole.
-    async fn request_data_sync(&self, request: StorageRequest) -> Result<Vec<RecordBatch>>;
+    async fn request_data_sync(&mut self, request: StorageRequest) -> Result<Vec<RecordBatch>>;
 }
