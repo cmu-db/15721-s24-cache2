@@ -65,14 +65,18 @@ impl StorageClientImpl {
     }
 
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
-    pub async fn read_entire_table(&self, table: TableId) -> Result<Receiver<RecordBatch>> {
+    pub async fn read_entire_table(
+        &self,
+        table: TableId,
+        request_id: usize,
+    ) -> Result<Receiver<RecordBatch>> {
         // let mut local_path = self.local_cache.clone();
         let mut file_path = self.get_path(table)?;
         // local_path.push_str(&file_path);
 
         if !self.use_local_cache {
             let start = std::time::Instant::now();
-            file_path = self.fetch_file(&file_path).await.unwrap();
+            file_path = self.fetch_file(&file_path, request_id).await.unwrap();
             let duration = start.elapsed();
             println!("Time used to fetch file: {:?}", duration);
         }
@@ -87,14 +91,18 @@ impl StorageClientImpl {
         Ok(receiver)
     }
 
-    pub async fn read_entire_table_sync(&self, table: TableId) -> Result<Vec<RecordBatch>> {
+    pub async fn read_entire_table_sync(
+        &self,
+        table: TableId,
+        request_id: usize,
+    ) -> Result<Vec<RecordBatch>> {
         // let mut local_path = self.local_cache.clone();
         let mut file_path = self.get_path(table)?;
         // local_path.push_str(&file_path);
 
         if !self.use_local_cache {
             let start = std::time::Instant::now();
-            file_path = self.fetch_file(&file_path).await.unwrap();
+            file_path = self.fetch_file(&file_path, request_id).await.unwrap();
             let duration = start.elapsed();
             println!("Time used to fetch file: {:?}", duration);
         }
@@ -142,7 +150,7 @@ impl StorageClientImpl {
     }
 
     /// Fetch file from I/O server
-    async fn fetch_file(&self, file_path: &str) -> Result<String> {
+    async fn fetch_file(&self, file_path: &str, request_id: usize) -> Result<String> {
         // First, trim the path to leave only the file name after the last '/'
         let trimmed_path: Vec<&str> = file_path.split('/').collect();
         let file_name = trimmed_path.last().ok_or_else(|| {
@@ -150,7 +158,9 @@ impl StorageClientImpl {
             anyhow::Error::msg("File path is empty")
         })?;
 
-        let url = format!("{}/s3/{}", self.server_url, file_name);
+        // add request_id as query parameter "rid"
+
+        let url = format!("{}/s3/{}?rid={}", self.server_url, file_name, request_id);
         println!("Sending request: {}", url);
 
         let start = std::time::Instant::now();
@@ -236,7 +246,10 @@ impl StorageClientImpl {
 impl StorageClient for StorageClientImpl {
     async fn request_data(&self, request: StorageRequest) -> Result<Receiver<RecordBatch>> {
         match request.data_request() {
-            DataRequest::Table(table_id) => self.read_entire_table(*table_id).await,
+            DataRequest::Table(table_id) => {
+                self.read_entire_table(*table_id, request.request_id())
+                    .await
+            }
 
             DataRequest::Columns(_table_id, _column_ids) => {
                 unimplemented!("Column request is not supported yet")
@@ -249,7 +262,10 @@ impl StorageClient for StorageClientImpl {
 
     async fn request_data_sync(&self, request: StorageRequest) -> Result<Vec<RecordBatch>> {
         match request.data_request() {
-            DataRequest::Table(table_id) => self.read_entire_table_sync(*table_id).await,
+            DataRequest::Table(table_id) => {
+                self.read_entire_table_sync(*table_id, request.request_id())
+                    .await
+            }
             DataRequest::Columns(_table_id, _column_ids) => {
                 unimplemented!("Column request is not supported yet")
             }
@@ -390,7 +406,7 @@ mod tests {
         let (client, _file_name) = setup_local();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            let mut receiver = client.read_entire_table(0).await.unwrap();
+            let mut receiver = client.read_entire_table(0, 0).await.unwrap();
             // Wait for the channel to be ready
             sleep(Duration::from_secs(1)).await;
             // Assert that the channel is ready
@@ -409,7 +425,7 @@ mod tests {
         let (client, _file_name) = setup_local();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            let res = client.read_entire_table_sync(0).await;
+            let res = client.read_entire_table_sync(0, 0).await;
             assert!(res.is_ok());
             let record_batch = res.unwrap();
             let rb = record_batch.first();
@@ -427,7 +443,7 @@ mod tests {
         let client = setup_remote();
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            let mut receiver = client.read_entire_table(0).await.unwrap();
+            let mut receiver = client.read_entire_table(0, 0).await.unwrap();
             // Wait for the channel to be ready
             sleep(Duration::from_secs(1)).await;
             // Assert that the channel is ready
