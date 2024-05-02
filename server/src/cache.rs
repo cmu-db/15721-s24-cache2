@@ -119,7 +119,7 @@ impl DiskCache {
         let duration = end_time - start_time;
 
         debug!(
-            "Request id {} ask for {} started at {} and ended at {}, taking {:?}",
+            "[Request id {}] fetch file {} started at {} and ended at {}, taking {:?}",
             rid.clone(),
             uid_str.clone(),
             start_time.to_rfc3339(),

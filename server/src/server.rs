@@ -22,41 +22,25 @@ async fn cache_stats(cache: &State<Arc<ConcurrentDiskCache>>) -> String {
     cache.get_stats().await
 }
 
-#[get("/s3/<uid..>")]
+#[get("/s3/<uid>?<rid>")]
 async fn get_file(
-    uid: PathBuf,
+    uid: String,
+    rid: Option<String>,
     cache: &State<Arc<ConcurrentDiskCache>>,
     s3_connectors: &State<Vec<Arc<dyn StorageConnector + Send + Sync>>>,
 ) -> cache::GetFileResult {
-    let full_uid_str = uid.to_string_lossy().to_string();
-    let parts: Vec<&str> = full_uid_str.split('?').collect();
-    let uid_str = parts[0].to_string();
+    let request_id = rid.unwrap_or_else(|| "0".to_string());  // Default to "0" if `rid` is not provided
 
-    // Default request ID
-    let mut request_id = "0".to_string();
+    debug!("Requested file: {}", uid);
+    debug!("Request ID: {}", request_id);
 
-    // Check if there's a query part for request ID
-    if parts.len() == 2 {
-        let request_part = parts[1];
-        let rid_key_value: Vec<&str> = request_part.split('=').collect();
-        if rid_key_value.len() == 2 && rid_key_value[0] == "rid" {
-            request_id = rid_key_value[1].to_string();
-        } else {
-            return cache::GetFileResult::InitFailed(format!(
-                "Invalid request ID format: {}",
-                request_part
-            ));
-        }
-    }
-
-    debug!("Handling request ID: {}", request_id);
-    let index = hash(&uid_str) % s3_connectors.len(); // Use the converted string
+    let index = hash(&uid) % s3_connectors.len();
     let s3_connector = &s3_connectors[index];
 
     cache
         .inner()
         .clone()
-        .get_file(PathBuf::from(uid_str), request_id, s3_connector.clone()) // Use PathBuf from string
+        .get_file(PathBuf::from(uid), request_id, s3_connector.clone())
         .await
 }
 
