@@ -61,8 +61,7 @@ impl StorageClientImpl {
     }
 
     pub fn local_cache_path() -> String {
-        let home = std::env::var("HOME").unwrap();
-        String::from(home + "/istziio_client_cache/")
+        String::from("./istziio_client_cache/")
     }
 
     /// Fetch all data of a table, call get_path() to get the file name that stores the table
