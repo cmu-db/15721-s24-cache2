@@ -29,7 +29,7 @@ async fn get_file(
     cache: &State<Arc<ConcurrentDiskCache>>,
     s3_connectors: &State<Vec<Arc<dyn StorageConnector + Send + Sync>>>,
 ) -> cache::GetFileResult {
-    let request_id = rid.unwrap_or_else(|| "0".to_string());  // Default to "0" if `rid` is not provided
+    let request_id = rid.unwrap_or_else(|| "0".to_string()); // Default to "0" if `rid` is not provided
 
     debug!("Requested file: {}", uid);
     debug!("Request ID: {}", request_id);
