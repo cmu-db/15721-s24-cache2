@@ -60,6 +60,7 @@ impl DiskCache {
     pub async fn get_file(
         cache: Arc<Mutex<Self>>,
         uid: PathBuf,
+        rid: String,
         connector: Arc<dyn StorageConnector + Send + Sync>,
         redis_read: &RwLockReadGuard<'_, RedisServer>,
     ) -> GetFileResult {
@@ -118,7 +119,8 @@ impl DiskCache {
         let duration = end_time - start_time;
 
         debug!(
-            "Request for {} started at {} and ended at {}, taking {:?}",
+            "Request id {} ask for {} started at {} and ended at {}, taking {:?}",
+            rid.clone(),
             uid_str.clone(),
             start_time.to_rfc3339(),
             end_time.to_rfc3339(),
@@ -211,6 +213,7 @@ impl ConcurrentDiskCache {
     pub async fn get_file(
         &self,
         uid: PathBuf,
+        rid: String,
         connector: Arc<dyn StorageConnector + Send + Sync>,
     ) -> GetFileResult {
         let uid = uid.into_os_string().into_string().unwrap();
@@ -238,8 +241,14 @@ impl ConcurrentDiskCache {
         let shard = &self.shards[shard_index];
         // Debug message showing shard selection
         debug!("Selected shard index: {} for uid: {}", shard_index, &uid);
-        let result =
-            DiskCache::get_file(shard.clone(), uid.into(), connector.clone(), &redis_read).await;
+        let result = DiskCache::get_file(
+            shard.clone(),
+            uid.into(),
+            rid,
+            connector.clone(),
+            &redis_read,
+        )
+        .await;
         drop(redis_read);
         info!("{}", self.get_stats().await);
         result
